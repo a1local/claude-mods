@@ -119,7 +119,7 @@ export const statsTable = (refs: ChannelRef[], last: Last, daily: Daily, today: 
 const HINT = 'channel-stats: set a YouTube API key'
 
 /** What a session of the module holds between refreshes. */
-type Ctx = { apiKey: string; configured: string; keyFile: string; offsetMin: number; refs: ChannelRef[]; note: string; inFlight?: Promise<void> }
+type Ctx = { apiKey: string; configured: string; keyFile: string; isRunning?: boolean; offsetMin: number; refs: ChannelRef[]; note: string; inFlight?: Promise<void> }
 
 async function loadRefs($: EngineInterface, ctx: Ctx) {
   const home = (await $.env.get('HOME').catch(() => undefined)) ?? ''
@@ -204,7 +204,9 @@ async function refresh($: EngineInterface, ctx: Ctx) {
 }
 
 async function showStats($: EngineInterface, ctx: Ctx) {
-  if (!ctx.apiKey) return { text: `${HINT}: see the channel-stats README (Google Cloud console, YouTube Data API v3, API key), then /config.` }
+  if (!(await ensureKey($, ctx))) {
+    return { text: `${HINT}: see the channel-stats README (Google Cloud console, YouTube Data API v3, API key), then save it in ${ctx.keyFile || KEY_FILE} or the mod's settings.` }
+  }
   await refresh($, ctx)
   if (ctx.refs.length === 0) return { text: `channel-stats: no channels listed. Add them to ${ctx.configured || DEFAULT_FILE} (see the README).` }
   const last = ((await $.store.get('last')) ?? {}) as Last
@@ -225,19 +227,31 @@ async function keyFromFile($: EngineInterface, path: string): Promise<string> {
   return (text.split('\n')[0] ?? '').trim()
 }
 
-async function start($: EngineInterface, ctx: Ctx) {
-  await $.command.register({ name: 'channel-stats', description: 'YouTube channel subscribers, views and videos, with the change since yesterday' })
+/**
+ * Finds the key (the setting, else the key file) and, the first time one is found, starts the
+ * 30-minute refresh. Runs at session start and again on `/channel-stats`, so a key file saved while
+ * a session is open is picked up without restarting it. Returns whether there is a key.
+ */
+async function ensureKey($: EngineInterface, ctx: Ctx): Promise<boolean> {
   if (!ctx.apiKey) ctx.apiKey = await keyFromFile($, ctx.keyFile || KEY_FILE)
   if (!ctx.apiKey) {
     $.ui.status(HINT)
-    return
+    return false
   }
-  // the module has no time zone of its own: ask the computer once, for the daily snapshot's date
-  const tz = await $.process.run(['date', '+%z']).then(r => r.stdout.trim()).catch(() => '')
-  const m = /^([+-])(\d\d)(\d\d)/.exec(tz)
-  if (m) ctx.offsetMin = (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]))
-  void refresh($, ctx)
-  $.clock.every(REFRESH_MS, () => refresh($, ctx))
+  if (!ctx.isRunning) {
+    ctx.isRunning = true
+    // the module has no time zone of its own: ask the computer once, for the daily snapshot's date
+    const tz = await $.process.run(['date', '+%z']).then(r => r.stdout.trim()).catch(() => '')
+    const m = /^([+-])(\d\d)(\d\d)/.exec(tz)
+    if (m) ctx.offsetMin = (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]))
+    $.clock.every(REFRESH_MS, () => refresh($, ctx))
+  }
+  return true
+}
+
+async function start($: EngineInterface, ctx: Ctx) {
+  await $.command.register({ name: 'channel-stats', description: 'YouTube channel subscribers, views and videos, with the change since yesterday' })
+  if (await ensureKey($, ctx)) void refresh($, ctx)
 }
 
 export const register: Register = (on, options) => {

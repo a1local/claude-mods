@@ -118,6 +118,41 @@ test('a key in ~/.claude-mods/youtube-api-key is used when no key is set', async
   expect(statuses[statuses.length - 1]).toContain('Demo Animals 412/1k subs')
 })
 
+test('a key file saved after the session started is picked up by /channel-stats', async ($, on) => {
+  const statuses: (string | undefined)[] = []
+  let keySaved = false
+  let fetched = 0
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: { command: 'channel-stats' } }))
+  on('ui.status', (_, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
+  on('process.run', () => ran('+1000\n'))
+  on('fs.read', (_, e) => {
+    if (e.path === `${HOME}/.claude-mods/youtube-api-key` && keySaved) return { value: 'late-key-not-real\n' }
+    if (e.path === FILE) return { value: CHANNELS }
+    throw new Error('ENOENT')
+  })
+  on('http.fetch', (_, e) => {
+    fetched += 1
+    return answer(e.url.includes('forHandle=') ? [SPACE] : [ANIMALS])
+  })
+  mock.env(on, { HOME })
+  mock.store(on, {})
+  mock.clock(on, { now: NOW })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(statuses[statuses.length - 1]).toBe('channel-stats: set a YouTube API key')
+  expect(fetched).toBe(0)
+
+  keySaved = true
+  const out = await $.command.run(RUN)
+  expect(fetched).toBeGreaterThan(0)
+  expect(out.text).toContain('Demo Animals')
+  expect(statuses[statuses.length - 1]).toContain('Demo Animals 412/1k subs')
+})
+
 test('no API key: the hint, and nothing fetched', async ($, on) => {
   const { statuses } = engine(on)
   let fetched = 0
@@ -129,7 +164,9 @@ test('no API key: the hint, and nothing fetched', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const out = await $.command.run(RUN)
 
-  expect(statuses).toEqual(['channel-stats: set a YouTube API key'])
+  // the hint at start, and again when /channel-stats looks for a key and still finds none
+  expect(statuses.length).toBeGreaterThan(0)
+  expect(statuses.every(s => s === 'channel-stats: set a YouTube API key')).toBe(true)
   expect(out.text).toContain('set a YouTube API key')
   expect(fetched).toBe(0)
 })
