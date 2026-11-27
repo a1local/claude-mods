@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { barPieces, channelColor, short } from '../hooks/register'
+import { alertFor, barPieces, channelColor, short } from '../hooks/register'
 
 const HOME = '/home/demo'
 const REG = `${HOME}/.render-progress`
@@ -124,4 +124,18 @@ test('short numbers, the bar with its percent inside, steady channel colours', (
   expect(barPieces(null, 12, 'bundling', 'claude').map(p => p.text).join('')).toBe('[--bundling--]')
   expect(channelColor('Some Channel')).toBe(channelColor('Some Channel'))
   expect(channelColor('')).toBe('text')
+})
+
+test('alerts: done and failed only after a change, stalled whenever it starts', () => {
+  const row = (stage: 'rendering' | 'done' | 'failed' | 'stalled') => ({
+    id: 'r', title: 'My Film', channel: '', kind: 'remotion' as const, stage,
+    fraction: 0.5, framesDone: 1, framesTotal: 2, elapsedSec: 3725, leftSec: null,
+  })
+  expect(alertFor(row('done'), 'rendering')).toBe('My Film: render done in 1:02:05')
+  expect(alertFor(row('failed'), 'joining')).toBe('My Film: render FAILED after 1:02:05')
+  expect(alertFor(row('stalled'), 'rendering')).toBe('My Film: no progress for 15 minutes')
+  // already finished when first seen (say, after a reload): no alert; no change: no alert
+  expect(alertFor(row('done'), undefined)).toBe(undefined)
+  expect(alertFor(row('done'), 'done')).toBe(undefined)
+  expect(alertFor(row('rendering'), 'bundling')).toBe(undefined)
 })

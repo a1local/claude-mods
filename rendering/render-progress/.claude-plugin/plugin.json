@@ -1,6 +1,6 @@
 {
   "name": "render-progress",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A pacman-style progress bar above the prompt for long renders (Remotion, Remotion Lambda, Blender or anything that can report frames): title, bar, ETA, frames, cores.",
   "types": "./types/index.d.ts",
   "author": {
@@ -13,6 +13,12 @@
       "title": "Registry folder",
       "description": "Folder where render scripts describe their renders, one key=value file each. Default ~/.render-progress",
       "default": ""
+    },
+    "alerts": {
+      "type": "boolean",
+      "title": "Alerts",
+      "description": "A toast and a native notification when a render finishes, fails or stalls",
+      "default": true
     }
   }
 }

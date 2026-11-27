@@ -175,7 +175,23 @@ export const coresOf = (procs: Proc[], roots: number[]): number | null => {
 
 const pidsIn = (text: string | undefined) => (text ?? '').split(/[\s,]+/).map(Number).filter(n => Number.isInteger(n) && n > 0)
 
-const poll = async ($: EngineInterface, dir: string) => {
+/**
+ * What to say when a render's stage changes to done, failed or stalled; nothing for any other change.
+ * `before` is undefined the first time a render is seen, which alerts only for a stall.
+ */
+export const alertFor = (r: RenderRow, before: RenderRow['stage'] | undefined): string | undefined => {
+  if (r.stage === before) return undefined
+  if (r.stage === 'done' && before !== undefined) return `${r.title}: render done in ${clock(r.elapsedSec)}`
+  if (r.stage === 'failed' && before !== undefined) return `${r.title}: render FAILED after ${clock(r.elapsedSec)}`
+  if (r.stage === 'stalled') return `${r.title}: no progress for 15 minutes`
+  return undefined
+}
+
+// the stage each render had at the last poll; empty until the first poll, which raises nothing
+const lastStage = new Map<string, RenderRow['stage']>()
+let seeded = false
+
+const poll = async ($: EngineInterface, dir: string, alerts = true) => {
   const entries = await $.fs.list(dir).catch(() => [])
   const nowMs = await $.clock.now()
   const nowSec = nowMs / 1000
@@ -198,6 +214,20 @@ const poll = async ($: EngineInterface, dir: string) => {
     if (row) found.push({ ...row, cores: row.stage === 'done' || row.stage === 'failed' ? null : coresOf(procs, pids) })
   }
   found.sort((x, y) => x.id.localeCompare(y.id))
+  // a render that changed to done, failed or stalled since the last poll raises a toast and a
+  // native notification, once; the first poll after a (re)load only records where things stand
+  if (alerts && seeded) {
+    for (const r of found) {
+      const text = alertFor(r, lastStage.get(r.id))
+      if (text) {
+        $.ui.toast(text, { timeoutMs: 10000 })
+        await $.ui.notify(text, { title: 'Render', key: `render-${r.id}-${r.stage}` }).catch(() => undefined)
+      }
+    }
+  }
+  lastStage.clear()
+  for (const r of found) lastStage.set(r.id, r.stage)
+  seeded = true
   await update($, rows, () => found)
 }
 
@@ -334,8 +364,9 @@ export const register: Register = (on, options) => {
     const configured = typeof options.registryDir === 'string' ? options.registryDir.trim() : ''
     const home = await run(['printenv', 'HOME'])
     const dir = (configured || '~/.render-progress').replace(/^~(?=\/|$)/, home)
-    await poll($, dir)
-    $.clock.every(POLL_MS, () => poll($, dir))
+    const alerts = options.alerts !== false
+    await poll($, dir, alerts)
+    $.clock.every(POLL_MS, () => poll($, dir, alerts))
     return result
   })
 

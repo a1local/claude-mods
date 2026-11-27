@@ -1,0 +1,35 @@
+{
+  "name": "machine-monitor",
+  "version": "0.1.0",
+  "description": "A status line with CPU load, GPU use, swap and free disk; refuses heavy Bash jobs (renders, ffmpeg, Blender) while the machine is overloaded; warns when disk runs low or temp folders grow.",
+  "author": {
+    "name": "A1 Local"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "loadLimit": {
+      "type": "number",
+      "title": "Load limit",
+      "description": "Heavy Bash jobs are refused while the 1-minute load average is over this. Default 20",
+      "default": 20
+    },
+    "freeGbWarn": {
+      "type": "number",
+      "title": "Low disk warning (GB free)",
+      "description": "Warn when a watched path has less free space than this. Default 20",
+      "default": 20
+    },
+    "tempGbWarn": {
+      "type": "number",
+      "title": "Temp size warning (GB)",
+      "description": "Warn when the temp folders add up to more than this. Default 20",
+      "default": 20
+    },
+    "configFile": {
+      "type": "string",
+      "title": "Config file",
+      "description": "JSON file with heavyPatterns, watchPaths and tempGlobs. Default ~/.claude-mods/machine-monitor.json",
+      "default": "~/.claude-mods/machine-monitor.json"
+    }
+  }
+}

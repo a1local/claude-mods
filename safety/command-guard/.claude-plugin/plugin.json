@@ -1,0 +1,24 @@
+{
+  "name": "command-guard",
+  "version": "0.1.0",
+  "description": "Turns your \"never run X\" rules into a guard: a Bash command (or a Write/Edit) matching one of your patterns is refused, and Claude reads your reason and what to do instead.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "A1 Local"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "rulesFile": {
+      "type": "string",
+      "title": "Rules file",
+      "description": "JSON file holding your rules. Default ~/.claude-mods/command-guard.json",
+      "default": ""
+    },
+    "toasts": {
+      "type": "boolean",
+      "title": "Toasts",
+      "description": "A short toast naming the rule each time one refuses a call",
+      "default": true
+    }
+  }
+}

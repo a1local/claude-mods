@@ -6,9 +6,66 @@
   "plugins": [
     {
       "name": "render-progress",
-      "source": "./render-progress",
-      "description": "A pacman-style progress bar above the prompt for long renders: title, bar, ETA, frames, cores."
+      "source": "./rendering/render-progress",
+      "category": "rendering",
+      "tags": [
+        "rendering",
+        "remotion",
+        "blender",
+        "progress",
+        "notifications"
+      ],
+      "description": "A pacman-style progress bar above the prompt for long renders (Remotion, Lambda, Blender or any command), with alerts when one finishes, fails or stalls."
+    },
+    {
+      "name": "machine-monitor",
+      "source": "./monitoring/machine-monitor",
+      "category": "monitoring",
+      "tags": [
+        "monitoring",
+        "cpu",
+        "gpu",
+        "disk",
+        "load"
+      ],
+      "description": "A status line with load, GPU, swap and free disk; holds back heavy jobs while the machine is overloaded and warns when disk or temp folders cross a limit."
+    },
+    {
+      "name": "publish-schedule",
+      "source": "./youtube/publish-schedule",
+      "category": "youtube",
+      "tags": [
+        "youtube",
+        "publishing",
+        "schedule",
+        "shorts"
+      ],
+      "description": "A pane of today's and tomorrow's uploads (films, Shorts, other platforms) with what is due, overdue or done, and a reminder above the prompt within the hour."
+    },
+    {
+      "name": "channel-stats",
+      "source": "./youtube/channel-stats",
+      "category": "youtube",
+      "tags": [
+        "youtube",
+        "analytics",
+        "subscribers",
+        "monetisation"
+      ],
+      "description": "YouTube subscribers and views for your channels in the status line, against the 1,000-subscriber Partner Program bar, with a daily change table."
+    },
+    {
+      "name": "command-guard",
+      "source": "./safety/command-guard",
+      "category": "safety",
+      "tags": [
+        "safety",
+        "guardrails",
+        "bash",
+        "rules"
+      ],
+      "description": "Turns your 'never run this' rules into a guard every Claude session obeys: matching commands are refused with your reason and what to do instead."
     }
   ],
-  "description": "Mods for Claude Code: small add-ons for what the app and terminal show."
+  "description": "Mods for Claude Code, grouped by use: rendering, monitoring, YouTube and safety."
 }

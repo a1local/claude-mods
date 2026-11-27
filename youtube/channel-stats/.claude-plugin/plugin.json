@@ -1,0 +1,24 @@
+{
+  "name": "channel-stats",
+  "version": "0.1.0",
+  "description": "YouTube channel numbers in Claude Code: subscribers and views of your channels in the status line, refreshed every 30 minutes, and a /stats table with the change since yesterday. Uses a YouTube Data API key.",
+  "author": {
+    "name": "A1 Local"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "apiKey": {
+      "type": "string",
+      "title": "YouTube API key",
+      "description": "A YouTube Data API v3 key from the Google Cloud console. Kept in secure storage.",
+      "sensitive": true,
+      "default": ""
+    },
+    "configFile": {
+      "type": "string",
+      "title": "Channels file",
+      "description": "JSON file listing the channels to watch. Default ~/.claude-mods/channel-stats.json",
+      "default": ""
+    }
+  }
+}
