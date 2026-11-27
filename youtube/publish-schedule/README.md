@@ -1,39 +1,51 @@
 # publish-schedule
 
-A **Publishing** pane in Claude Code that lists what you are due to publish today and tomorrow: long films and Shorts, across one or more channels and platforms. It reads one JSON file you keep (or generate), so it works with any channel and any posting rhythm.
+`/publishing` answers in the chat with what you are due to publish today and tomorrow: long films and Shorts, across one or more channels and platforms. It reads one JSON file you keep (or generate), so it works with any channel and any posting rhythm.
 
 ```
+Publishing
 Today, Sat 28 Nov
-00:05 Demo Channel  Film  How Deep Is the Ocean?           YT FB  done
-09:05 Demo Channel  Short Squid Have Three Hearts          TT     overdue 25 min  [Done]
-10:00 Other Channel Short The Moon Is Moving Away          YT     in 30 min       [Done]
-14:05 Demo Channel  Short Octopus Arms Can Taste           YT FB  later           [Done]
-
+1.  00:05  Demo Channel   Film   How Deep Is the Ocean?    YT FB  done
+2.  09:05  Demo Channel   Short  Squid Have Three Hearts   TT     overdue 25 min
+3.  10:00  Other Channel  Short  The Moon Is Moving Away   YT     in 30 min
+4.  14:05  Demo Channel   Short  Octopus Arms Can Taste    YT FB  later
 Tomorrow, Sun 29 Nov
-00:05 Demo Channel  Film  Why Whales Sing                  YT     later           [Done]
+5.  00:05  Demo Channel   Film   Why Whales Sing           YT     scheduled
+2 due today · 1 overdue · updated 09:30
 ```
 
-Each row shows:
+In the chat it is drawn as a rounded box in the claude-mods look: the title in bold, the day lines dim, one line per item with the columns lined up, and the counts in a dim footnote. Each item shows:
 
-- **Time**, in your computer's time zone.
-- **Channel**, coloured so channels are easy to tell apart.
+- **Number**, for `/publishing done <n>`.
+- **Time**, in your computer's time zone (24-hour).
+- **Channel**, bold, in the entry's `color` if it has one, else a steady colour picked from the name.
 - **Kind**: Film or Short.
-- **Title**.
-- **Platforms**, shortened: YT (YouTube), FB (Facebook), TT (TikTok), IG (Instagram); any other name as written.
-- **Status**: `done` in green; `in 25 min` when due within the hour; `overdue 25 min` in red when its time has passed and it is not done; `later` otherwise.
-- A **Done** button, which writes `"done": true` for that item back into the file.
+- **Title**, cut to 40 characters.
+- **Platforms**, dim and shortened: YT (YouTube), FB (Facebook), TT (TikTok), IG (Instagram); any other name as written.
+- **Status**: `done` in green; `in 25 min` in amber when due within the hour; `overdue 25 min` in red when its time has passed and it is not done; `scheduled` in blue for a scheduled upload still to come; `later` dim otherwise.
 
-Items from earlier days that are still not done stay at the top under "Earlier, not done" for a week.
+Items from earlier days that are still not done stay at the top under "Earlier, not done" for a week. The footnote counts what is still due today, what is overdue, and when the file was last read.
 
-Open the pane with `/publishing`. (`/schedule` is taken by a command Claude Code ships.)
+(`/schedule` is taken by a command Claude Code ships, hence `/publishing`.)
 
-When something is due within the hour, or overdue, a one-line reminder shows above the prompt:
+### Marking an item done
 
 ```
-Next: Short 10:00 Other Channel "The Moon Is Moving Away" (in 30 min)
+/publishing done 2
 ```
 
-An overdue item comes first, in red, with a count of the rest: `Overdue: Short 09:05 Demo Channel "Squid Have Three Hearts" (25 min ago) +1 more`. With nothing due within the hour and nothing overdue, nothing is drawn.
+writes `"done": true` for row 2 of the last reply into the schedule file and answers the refreshed reply, with `marked 2 done` in the footnote. The numbers are the ones the last `/publishing` reply showed.
+
+### Above the prompt
+
+When something is due within the hour, or overdue, it shows above the prompt, one line per item:
+
+```
+overdue 25 min  09:05  Demo Channel   Short  Squid Have Three Hearts  ✕
+in 30 min       10:00  Other Channel  Short  The Moon Is Moving Away  ✕
+```
+
+**✕** closes that line for the session; `/publishing` brings closed lines back. With nothing due within the hour and nothing overdue, nothing is drawn.
 
 The file is read again every minute, so edits by hand or by a script show up without a reload.
 
@@ -71,7 +83,8 @@ Default `~/.claude-mods/schedule.json`: a JSON list (or an object with the list 
     "kind": "short",
     "title": "Squid Have Three Hearts",
     "platforms": ["tiktok"],
-    "done": false
+    "done": false,
+    "color": "suggestion"
   }
 ]
 ```
@@ -82,13 +95,14 @@ Default `~/.claude-mods/schedule.json`: a JSON list (or an object with the list 
 | `channel` | Channel name. Rows of the same channel share a colour. |
 | `kind` | `film` or `short`. |
 | `title` | What the row is called. |
-| `done` | Optional. `true` once published; the Done button sets it. |
+| `done` | Optional. `true` once published; `/publishing done <n>` sets it. |
 | `scheduled` | Optional. `true` when the platform will publish it by itself (a scheduled upload). It then counts as done once its time has passed, instead of turning overdue. |
 | `platforms` | Optional. Where it goes, such as `["youtube", "facebook", "tiktok"]`. |
+| `color` | Optional. The channel's colour, a theme key such as `suggestion`, `claude`, `success` or `merged`. Left out, the channel name picks a steady one. |
 
-Entries without a valid `at` or `title` are skipped. The Done button changes only the `done` field of the entry it belongs to (found by its `at`, `channel` and `title`) and keeps the rest of the file as it is, rewritten with 2-space indents.
+Entries without a valid `at` or `title` are skipped. `/publishing done <n>` changes only the `done` field of the entry it names (found by its `at`, `channel` and `title`) and keeps the rest of the file as it is, rewritten with 2-space indents.
 
-A script can build the file from your own publishing records; run it again whenever they change, and carry over `done: true` from the old file so Done presses are kept.
+A script can build the file from your own publishing records; run it again whenever they change, and carry over `done: true` from the old file so items marked done stay done.
 
 ## Settings
 
@@ -97,7 +111,7 @@ In the config menu, or under `pluginConfigs` in settings:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `scheduleFile` | `~/.claude-mods/schedule.json` (when left empty) | The schedule file. `~` means your home folder. |
-| `band` | `on` | `off` hides the reminder above the prompt; the pane still works. |
+| `band` | `on` | `off` hides the lines above the prompt; `/publishing` still works. |
 
 ## License
 

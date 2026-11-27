@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { RenderRow } from '../types'
+import { align, bandLine, bar, clock, cut, hhmm, label, nameColor, parseOffset, recall, remember, replyBox, short, title, toned } from './look'
+import type { Piece, Reply, Row, Tone } from './look'
 
 // Each render describes itself in one small file in the registry folder (default ~/.render-progress):
 // `key=value` lines. See README.md for the format. The mod reads them every few seconds.
@@ -159,14 +161,79 @@ const runCommand = async ($: EngineInterface, id: string, reg: Record<string, st
   return cached
 }
 
-export type Proc = { pid: number; ppid: number; cpu: number; args: string }
+export type Proc = { pid: number; ppid: number; cpu: number; etimeSec: number; args: string }
 
-/** `ps -axo pid=,ppid=,%cpu=,args=` parsed. */
+/** `[[dd-]hh:]mm:ss`, as ps prints elapsed time, in seconds. */
+export const parseEtime = (t: string): number => {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(t.trim())
+  return m ? Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]) : 0
+}
+
+/** `ps -axo pid=,ppid=,%cpu=,etime=,args=` parsed. */
 export const parsePs = (text: string): Proc[] =>
   text.split('\n').flatMap(line => {
-    const m = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(.*)$/.exec(line)
-    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), cpu: Number(m[3]), args: m[4] ?? '' }] : []
+    const m = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/.exec(line)
+    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), cpu: Number(m[3]), etimeSec: parseEtime(m[4] ?? ''), args: m[5] ?? '' }] : []
   })
+
+/** `roots` and every process they started. */
+export const treeOf = (procs: Proc[], roots: number[]): Set<number> => {
+  const kids = new Map<number, number[]>()
+  for (const x of procs) kids.set(x.ppid, [...(kids.get(x.ppid) ?? []), x.pid])
+  const seen = new Set<number>()
+  const queue = [...roots]
+  while (queue.length > 0) {
+    const pid = queue.pop() as number
+    if (seen.has(pid)) continue
+    seen.add(pid)
+    queue.push(...(kids.get(pid) ?? []))
+  }
+  return seen
+}
+
+const base = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? path
+/** The project a binary belongs to: the folder above its `node_modules` (or `kit/node_modules`). */
+const projectOf = (path: string) => {
+  const m = /\/([^/]+)\/(?:kit\/)?node_modules\//.exec(path)
+  return m?.[1] ?? ''
+}
+
+/**
+ * Renders no registry file describes: `remotion render` (the node process itself) and `blender -b`
+ * processes outside the process trees of registered renders. Their progress goes to whoever started
+ * them, so a row shows what is rendering, for how long, and on how many cores.
+ */
+export const detectRenders = (procs: Proc[], covered: Set<number>): RenderRow[] => {
+  const out: RenderRow[] = []
+  for (const x of procs) {
+    if (covered.has(x.pid)) continue
+    const remotion = /^node\s+(\S*remotion)\s+render\s+(.*)$/.exec(x.args)
+    if (remotion) {
+      const words = (remotion[2] ?? '').split(/\s+/).filter(w => w && !w.startsWith('-'))
+      const [, composition, output] = words
+      const project = projectOf(remotion[1] ?? '')
+      out.push({
+        id: `detected-${x.pid}`, kind: 'detected', channel: project,
+        title: [composition, output ? base(output) : ''].filter(Boolean).join(' → ') || 'remotion render',
+        stage: 'rendering', fraction: null, framesDone: 0, framesTotal: 0, elapsedSec: x.etimeSec, leftSec: null,
+        cores: coresOf(procs, [x.pid]),
+      })
+      continue
+    }
+    const blender = /^(\S*\/)?blender\s+(?:.*\s)?-b(?:\s|$)/i.exec(x.args)
+    if (blender && /blender$/i.test((x.args.split(/\s+/)[0] ?? ''))) {
+      const shot = /\s--\s+(\S+)/.exec(x.args)?.[1]
+      const file = /\s(\S+\.blend)(?:\s|$)/.exec(x.args)?.[1]
+      out.push({
+        id: `detected-${x.pid}`, kind: 'detected', channel: 'blender',
+        title: `Blender ${shot ?? (file ? base(file) : '')}`.trim(),
+        stage: 'rendering', fraction: null, framesDone: 0, framesTotal: 0, elapsedSec: x.etimeSec, leftSec: null,
+        cores: coresOf(procs, [x.pid]),
+      })
+    }
+  }
+  return out
+}
 
 /** Cores in use by `roots` and everything they started (each process once). */
 export const coresOf = (procs: Proc[], roots: number[]): number | null => {
@@ -205,13 +272,14 @@ export const alertFor = (r: RenderRow, before: RenderRow['stage'] | undefined): 
 const lastStage = new Map<string, RenderRow['stage']>()
 let seeded = false
 
-const poll = async ($: EngineInterface, dir: string, alerts = true) => {
+const poll = async ($: EngineInterface, dir: string, alerts = true, detect = true) => {
   const entries = await $.fs.list(dir).catch(() => [])
   const nowMs = await $.clock.now()
   const nowSec = nowMs / 1000
-  const ps = await $.process.run(['ps', '-axo', 'pid=,ppid=,%cpu=,args=']).catch(() => undefined)
+  const ps = await $.process.run(['ps', '-axo', 'pid=,ppid=,%cpu=,etime=,args=']).catch(() => undefined)
   const procs = ps && ps.exitCode === 0 ? parsePs(ps.stdout) : []
   const found: RenderRow[] = []
+  const registered: number[] = []
   for (const entry of entries) {
     if (entry.kind !== 'file' || entry.name.startsWith('.') || entry.name.includes('.')) continue
     const reg = parseRegistry(await readText($, `${dir}/${entry.name}`))
@@ -225,9 +293,12 @@ const poll = async ($: EngineInterface, dir: string, alerts = true) => {
     } else {
       row = await workDirRow($, base, reg, nowSec).catch(() => undefined)
     }
+    registered.push(...pids)
     if (row) found.push({ ...row, cores: row.stage === 'done' || row.stage === 'failed' ? null : coresOf(procs, pids) })
   }
   found.sort((x, y) => x.id.localeCompare(y.id))
+  // and any render running that no registry file describes
+  if (detect) found.push(...detectRenders(procs, treeOf(procs, registered)))
   // a render that changed to done, failed or stalled since the last poll raises a toast and a
   // native notification, once; the first poll after a (re)load only records where things stand
   if (alerts && seeded) {
@@ -255,113 +326,51 @@ const STAGE_TEXT: Record<RenderRow['stage'], string> = {
   stalled: 'stalled',
 }
 
-/** `1:05:09`, `05:09`: pacman's clock. */
-export const clock = (sec: number): string => {
-  const s = Math.max(0, Math.round(sec))
-  const h = Math.floor(s / 3600)
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0')
-  const ss = String(s % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
-
-/** The wall-clock time `sec` from now, `21:45`, in the computer's time zone (`offsetMin` east of UTC). */
-export const finishAt = (nowMs: number, sec: number, offsetMin: number): string => {
-  const d = new Date(nowMs + sec * 1000 + offsetMin * 60000)
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
-}
-
-const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
-
-/** `7.4k`, or the exact number under 1,000. */
-export const short = (n: number): string => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`)
-
-export const cells = (r: RenderRow, nowMs: number, offsetMin: number, cpus = 0) => {
-  const isDone = r.stage === 'done'
-  const fraction = isDone ? 1 : r.fraction ?? null
-  const time = clock(r.elapsedSec ?? 0)
-  // the finish time alone while running (`ETA:21:25`); once over, the time it took
-  const when = isDone ? (r.elapsedSec > 0 ? `done ${time}` : 'done')
-    : r.stage === 'failed' ? `FAILED ${time}`
-    : r.stage === 'stalled' ? 'stalled'
-    : `ETA:${typeof r.leftSec === 'number' ? finishAt(nowMs, r.leftSec, offsetMin) : '--:--'}`
-  return {
-    channel: r.channel ?? '',
-    color: r.color,
-    title: cut(r.title ?? r.id, 26),
-    when,
-    frames: r.framesTotal > 0 && fraction !== null
-      ? `${short(isDone ? r.framesTotal : r.framesDone)}/${short(r.framesTotal)}`
-      : '',
-    // `2/10c`: cores in use out of the computer's total (the total left off until it is known)
-    cores: typeof r.cores === 'number' ? `${Math.round(r.cores)}${cpus > 0 ? `/${cpus}` : ''}c` : '',
-    fraction: r.stage === 'failed' ? null : fraction,
-    stage: STAGE_TEXT[r.stage] ?? r.stage,
-    percent: fraction !== null ? `${Math.floor(fraction * 100)}%` : '',
-  }
-}
-
-/** One coloured piece of a row; `color` is a theme key, so it follows light and dark themes. */
-export type Piece = { text: string; color?: string; bold?: boolean }
-
-/** A channel's colour: the same name always gets the same theme colour. */
-const PALETTE = ['success', 'suggestion', 'claude', 'merged', 'warning', 'autoAccept', 'planMode']
-export const channelColor = (channel: string): string => {
-  if (!channel) return 'text'
-  let h = 0
-  for (const ch of channel) h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  return PALETTE[h % PALETTE.length] ?? 'text'
-}
-
 /**
- * The bar with the percent written in its middle, `[###54%----]`, as coloured pieces: the filled cells,
- * the empty ones and the percent each their own colour. Without a fraction, the stage is written there.
+ * One render as the set's cells, most to least important: title (in its channel's colour), the bar with
+ * the percent inside, the finish time, frames, cores. See STYLE/STYLE.md.
  */
-export const barPieces = (fraction: number | null, width: number, label: string, fill: string): Piece[] => {
-  const w = Math.max(label.length + 2, width)
-  const filled = fraction === null ? 0 : Math.round(Math.min(1, Math.max(0, fraction)) * w)
-  const at = Math.floor((w - label.length) / 2)
-  const kinds = Array.from({ length: w }, (_, i) =>
-    i >= at && i < at + label.length ? 'label' : i < filled ? 'fill' : 'empty')
-  const out: Piece[] = [{ text: '[', color: 'subtle' }]
-  for (let i = 0; i < w; ) {
-    let j = i
-    while (j < w && kinds[j] === kinds[i]) j += 1
-    const kind = kinds[i]
-    out.push(kind === 'label'
-      ? { text: label.slice(i - at, j - at), bold: true }
-      : { text: (kind === 'fill' ? '#' : '-').repeat(j - i), color: kind === 'fill' ? fill : fraction === null ? 'subtle' : 'inactive' })
-    i = j
-  }
-  out.push({ text: ']', color: 'subtle' })
-  return out
+export const renderCells = (r: RenderRow, nowMs: number, offsetMin: number, cpus = 0): Row => {
+  const isDone = r.stage === 'done'
+  const isBad = r.stage === 'failed' || r.stage === 'stalled'
+  const fraction = isDone ? 1 : r.stage === 'failed' ? null : r.fraction ?? null
+  const name = r.title || r.id
+  const tone: Tone = isDone ? 'good' : isBad ? 'bad' : 'work'
+  const when = r.kind === 'detected' ? label(`running ${clock(r.elapsedSec)}`)
+    : isDone ? toned(r.elapsedSec > 0 ? `done ${clock(r.elapsedSec)}` : 'done', 'good')
+    : r.stage === 'failed' ? toned(`FAILED ${clock(r.elapsedSec ?? 0)}`, 'bad', true)
+    : r.stage === 'stalled' ? toned('stalled', 'bad', true)
+    : toned(`ETA:${typeof r.leftSec === 'number' ? hhmm(nowMs + r.leftSec * 1000, offsetMin) : '--:--'}`, 'info')
+  const cells: Row = [
+    [title(cut(name, 26), r.color || nameColor(r.channel || name))],
+    bar(fraction, 16, tone, fraction === null ? STAGE_TEXT[r.stage] : `${Math.floor(fraction * 100)}%`),
+    [when],
+  ]
+  if (r.framesTotal > 0 && fraction !== null) cells.push([label(`${short(isDone ? r.framesTotal : r.framesDone)}/${short(r.framesTotal)}`)])
+  if (typeof r.cores === 'number') cells.push([toned(`${Math.round(r.cores)}${cpus > 0 ? `/${cpus}` : ''}c`, 'warn')])
+  return cells
 }
 
-/** Every row in shared columns, pacman-style, as cells of coloured pieces; the bar fills what is left. */
-export const table = (shown: RenderRow[], columns: number, nowMs: number, offsetMin: number, cpus = 0): Piece[][][] => {
-  const all = shown.map(r => ({ r, c: cells(r, nowMs, offsetMin, cpus) }))
-  const w = {
-    title: Math.max(...all.map(x => x.c.title.length)),
-    when: Math.max(...all.map(x => x.c.when.length)),
-    cores: Math.max(...all.map(x => x.c.cores.length)),
-    frames: Math.max(...all.map(x => x.c.frames.length)),
+/** The renders as lined-up lines. */
+export const renderLines = (shown: RenderRow[], nowMs: number, offsetMin: number, cpus = 0): Piece[][] =>
+  align(shown.map(r => renderCells(r, nowMs, offsetMin, cpus)))
+
+/** `/renders`: every render, in the set's reply box. */
+export const rendersReply = (list: RenderRow[], nowMs: number, offsetMin: number, cpus = 0): Reply => {
+  const count = (pred: (r: RenderRow) => boolean) => list.filter(pred).length
+  const running = count(r => r.stage !== 'done' && r.stage !== 'failed')
+  const parts = [
+    running > 0 ? `${running} rendering` : '',
+    count(r => r.stage === 'done') > 0 ? `${count(r => r.stage === 'done')} done` : '',
+    count(r => r.stage === 'failed') > 0 ? `${count(r => r.stage === 'failed')} failed` : '',
+    'closed rows shown again above the prompt',
+  ].filter(Boolean)
+  return {
+    title: 'Renders',
+    rows: renderLines(list, nowMs, offsetMin, cpus),
+    foot: parts.join(' · '),
+    empty: 'Nothing rendering. The bar appears by itself when a render starts.',
   }
-  const opt = (n: number) => (n > 0 ? n + 1 : 0)
-  const fixed = w.title + 1 + 2 + 1 + w.when + opt(w.frames) + opt(w.cores)
-  // the band's column count runs wide on desktop, hence the margin
-  const width = Math.min(24, Math.max(12, columns - fixed - 12))
-  return all.map(({ r, c }) => {
-    const isBad = r.stage === 'failed' || r.stage === 'stalled'
-    const fill = r.stage === 'done' ? 'success' : isBad ? 'error' : 'claude'
-    // most to least important, each column its own cell: a band too narrow for them all wraps the
-    // last cells onto a second line instead of cutting them off. The channel shows as the title's colour
-    return [
-      [{ text: c.title.padEnd(w.title), color: c.color || channelColor(c.channel), bold: true }],
-      barPieces(c.fraction, width, c.fraction === null ? c.stage : c.percent, fill),
-      [{ text: c.when.padEnd(w.when), color: r.stage === 'done' ? 'success' : isBad ? 'error' : 'suggestion', bold: isBad }],
-      ...(w.frames > 0 ? [[{ text: c.frames.padStart(w.frames), color: 'subtle' }]] : []),
-      ...(w.cores > 0 ? [[{ text: c.cores.padStart(w.cores), color: 'warning' }]] : []),
-    ]
-  })
 }
 
 export const register: Register = (on, options) => {
@@ -371,55 +380,46 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     await $.command
-      .register({ name: 'renders', description: 'Show the render bar again (brings back rows closed with ✕) and list the renders' })
+      .register({ name: 'renders', description: 'List the renders and bring back rows closed with ✕' })
       .catch(() => undefined)
     const run = (argv: string[]) => $.process.run(argv).then(r => r.stdout.trim()).catch(() => '')
     // the module has no time zone or home folder of its own: ask the computer once
-    const m = /^([+-])(\d\d)(\d\d)/.exec(await run(['date', '+%z']))
-    if (m) offsetMin = (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]))
+    offsetMin = parseOffset(await run(['date', '+%z']))
     cpus = Number(await run(['getconf', '_NPROCESSORS_ONLN'])) || 0
     const configured = typeof options.registryDir === 'string' ? options.registryDir.trim() : ''
     const home = await run(['printenv', 'HOME'])
     const dir = (configured || '~/.render-progress').replace(/^~(?=\/|$)/, home)
     const alerts = options.alerts !== false
-    await poll($, dir, alerts)
-    $.clock.every(POLL_MS, () => poll($, dir, alerts))
+    const detect = options.detect !== false
+    await poll($, dir, alerts, detect)
+    $.clock.every(POLL_MS, () => poll($, dir, alerts, detect))
     return result
   })
 
   on('command.run', { command: 'renders' }, async $ => {
     await update($, hidden, () => [])
-    const list = await read($, rows)
-    if (list.length === 0) return { text: 'No renders to show. The bar appears by itself when a render starts.', isTextDisplayOnly: true as const }
-    const lines = list.map(r => `${r.title}: ${r.stage === 'done' ? 'done' : r.stage === 'failed' ? 'FAILED' : r.fraction !== null ? `${Math.floor(r.fraction * 100)}%` : r.stage}`)
-    return { text: `Render bar shown again.\n${lines.join('\n')}`, isTextDisplayOnly: true as const }
+    const reply = rendersReply(await read($, rows), await $.clock.now(), offsetMin, cpus)
+    return { text: remember(reply), isTextDisplayOnly: true as const }
   })
 
+  // the reply in the chat, in the set's look
+  on('ui.render', { component: 'CommandOutput', props: { command: 'renders' } }, async ($, e, next) => {
+    const reply = e.props.isErrored ? undefined : recall(e.props.text)
+    return reply ? replyBox($.ui.resolve(e), reply) : next(e)
+  })
+
+  // the band above the prompt: one line per render, a ✕ at the end of each
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const hide = await read($, hidden)
     const shown = (await read($, rows)).filter(r => !hide.includes(r.id))
     if (shown.length === 0) return next(e)
-
-    const { Box, Text, Button } = $.ui.resolve(e)
-    // room for each row's ✕ at its end
-    const lines = table(shown, e.props.bodyColumns - 4, await $.clock.now(), offsetMin, cpus)
+    const ui = $.ui.resolve(e)
+    const lines = renderLines(shown, await $.clock.now(), offsetMin, cpus)
     return (
-      <Box flexDirection="column">
-        {shown.map((r, i) => (
-          <Box key={r.id} flexDirection="row" flexWrap="wrap" columnGap={1}>
-            {(lines[i] ?? []).map(cell => (
-              <Box flexDirection="row">
-                {cell.map(piece => (
-                  <Text mono color={piece.color} bold={piece.bold}>{piece.text}</Text>
-                ))}
-              </Box>
-            ))}
-            {/* ✕ closes this row; /renders brings closed rows back */}
-            <Button key={`close-${r.id}`} label="✕" onPress={() => update($, hidden, h => [...h, r.id])} />
-          </Box>
-        ))}
-      </Box>
+      <ui.Box flexDirection="column">
+        {shown.map((r, i) => bandLine(ui, r.id, lines[i] ?? [], () => { void update($, hidden, h => [...h, r.id]) }))}
+      </ui.Box>
     )
   })
 }

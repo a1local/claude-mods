@@ -3,7 +3,7 @@
 A progress bar above the prompt in Claude Code (the desktop app and the terminal) for renders that take minutes or hours. One line per render:
 
 ```
-The Longest Night On Mars  [###########54%########--------] ETA:21:58 7.4k/13.5k 2/10c
+The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c  ✕
 ```
 
 - **Title**, coloured by channel, so different projects are easy to tell apart.
@@ -12,7 +12,18 @@ The Longest Night On Mars  [###########54%########--------] ETA:21:58 7.4k/13.5k
 - **Frames** done out of the total.
 - **Cores**: CPU cores the render's processes are using now, out of the computer's total.
 
-It shows every render on the computer, whichever session or terminal started it. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. Every row has a **✕** that closes it; `/renders` brings closed rows back and lists what's rendering. A render whose logs stop for 15 minutes turns red as `stalled`.
+It shows every render on the computer, whichever session or terminal started it. Renders that describe themselves (below) get a percentage and a finish time. Any other `remotion render` or `blender -b` run it spots on its own, with no percentage, since that progress only goes to whoever started it: `Ep02 → picture-v1.mp4  [--rendering--]  running 16:03  3/10c`. Turn that off with the **Spot other renders** setting. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. Every row has a **✕** that closes it. `/renders` brings closed rows back and lists every render in the chat:
+
+```
+╭──────────────────────────────────────────────────────────────────────╮
+│ Renders                                                              │
+│ The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k │
+│ Ocean Giants               [######100%######]  done 3:31:00          │
+│ 1 rendering · 1 done · closed rows shown again above the prompt      │
+╰──────────────────────────────────────────────────────────────────────╯
+```
+
+It looks and behaves like the other mods in this repo (see [STYLE.md](../../STYLE/STYLE.md)). A render whose logs stop for 15 minutes turns red as `stalled`.
 
 When a render finishes, fails or stalls, it raises a toast in Claude Code and a native notification once per change. The notification goes through your Claude Code notification setting, so it can reach your phone. Turn this off with the mod's **Alerts** setting.
 

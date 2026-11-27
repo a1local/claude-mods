@@ -4,8 +4,8 @@ Turns your "never run X" rules into a guard that every Claude Code session obeys
 
 You write each rule once, as a regular expression and a reason. When Claude tries a Bash command that matches, the command does not run: Claude gets your reason back as the tool's error, and the reason says what to do instead, so it can carry on the right way. A rule can also check the files Claude writes or edits.
 
-- A small toast names the rule each time one refuses a call.
-- `/guard` lists the active rules and how many times each refused a call this session.
+- A small toast names the tool and the rule each time one refuses a call: `Guard: refused Bash (no-mass-kill)`.
+- `/guard` lists the active rules and how many times each refused a call this session (see below).
 - Rules live in one private JSON file outside any repository. The mod reads it again as soon as you save it.
 - A broken rules file never blocks your work. If the file is not valid JSON, a rule has a bad pattern, or a check fails, calls go through and a toast says what is wrong (once, not on every command).
 
@@ -67,6 +67,20 @@ Tips for patterns that only catch what you mean:
 - Anchor a command name to where a command starts, as `no-mass-kill` does with `(^|[;&|(])\s*`, so `grep -rn pkill notes/` still runs.
 - Test each pattern against commands that should and should not match before relying on it, for example with `node -e 'console.log(new RegExp(process.argv[1]).test(process.argv[2]))' '<pattern>' '<command>'`.
 - A guard reads the text of the command. It cannot see what a script does inside, or which folder a command runs in unless the command says so (`cd site && ...`).
+
+## `/guard`
+
+`/guard` answers in the chat with a box: one line per rule with its name, the tool it checks, how many calls it refused this session (in the warning colour once it has refused any) and the start of its reason. With the example rules above, after two refused `pkill` commands:
+
+```
+Command guard
+no-force-push  Bash   0×  Never force-push. Pull and merge, or push a new commit. If…
+no-mass-kill   Bash   2×  Other jobs run on this computer. Stop only a process you st…
+no-env-files   Write  0×  Secrets are not written by Claude. Tell the user which vari…
+3 rules · 2 refusals this session · rules file ~/.claude-mods/command-guard.json
+```
+
+When the rules file is missing, is not valid JSON, or has rules that were skipped, the last line says so in red.
 
 ## Settings
 

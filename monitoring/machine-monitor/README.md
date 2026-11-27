@@ -1,6 +1,6 @@
 # machine-monitor
 
-Keeps an eye on a Mac that runs long renders and several Claude Code sessions at once. It does three things.
+Keeps an eye on a Mac that runs long renders and several Claude Code sessions at once. It does four things.
 
 **1. A status line under the prompt**, refreshed every 5 seconds:
 
@@ -16,7 +16,27 @@ load 6.2/10 · GPU 100% · swap 4.8/6.0G · disk 41G free
 
 Anything that can't be read is left out of the line.
 
-**2. A load guard.** When Claude is about to run a Bash command that starts a heavy job (a Remotion render, Blender in the background, ffmpeg, and so on) while the 1-minute load is over the limit, the command is refused and Claude is told:
+**2. A `/machine` command.** Type `/machine` for every measure against its limit, drawn in the chat as a box:
+
+```
+Machine
+load    [######----]   62%  6.2 of 10 cores
+GPU     [##########]  100%
+swap    [########--]   80%  4.8 of 6.0 GB
+disk ~  [#########-]   91%  41 GB free of 460 GB
+temp    [######----]   60%  12.0 of 20 GB
+limit 20 · heavy jobs held back above it · updated 21:45
+```
+
+- **load**: the 1-minute load out of the CPU cores. Its colour compares the load with the load limit.
+- **GPU**: how busy the GPU is.
+- **swap**: swap in use out of the swap file's size.
+- **disk**: one row per watched path; the bar is the share of the disk in use. Its colour compares the free space with the low-disk warning.
+- **temp**: the temp folders' size against the temp warning, once they have been measured.
+
+Green is under 70% of the limit, amber from there, red over it. The footnote gives the load limit and when the numbers were measured. Numbers older than 10 seconds are measured again first.
+
+**3. A load guard.** When Claude is about to run a Bash command that starts a heavy job (a Remotion render, Blender in the background, ffmpeg, and so on) while the 1-minute load is over the limit, the command is refused and Claude is told:
 
 ```
 Machine load is 34 (limit 20). Wait a few minutes and retry; check with uptime.
@@ -26,7 +46,7 @@ Commands that are not heavy always run. If the load can't be read, or the guard 
 
 A pattern matches as whole words anywhere in the command, in any case, so `ffmpeg` matches `ffmpeg -i a.mov b.mp4` and also `which ffmpeg`, but not `ffprobe`.
 
-**3. Disk warnings.** A toast in Claude Code and a system notification when:
+**4. Disk warnings.** A toast in Claude Code and a system notification, worded like `Disk: only 10 GB free on ~` or `Temp folders: 30 GB (limit 20 GB)`, when:
 
 - a watched path has less free space than the warning, or
 - the temp folders add up to more than the warning.

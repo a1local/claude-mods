@@ -1,5 +1,9 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { align, bar, change, label, nameColor, num, recall, remember, replyBox, title } from './look'
+import type { Cell, Reply, Row } from './look'
+import { hhmm } from './look'
+
 // Public numbers of a few YouTube channels, from the YouTube Data API v3 with an API key:
 // subscribers, views and videos. Watch hours need the YouTube Analytics API (OAuth), so they are left out.
 const REFRESH_MS = 30 * 60 * 1000
@@ -9,7 +13,7 @@ const KEEP_DAYS = 40
 const DEFAULT_FILE = '~/.claude-mods/channel-stats.json'
 
 /** One channel as the channels file lists it. */
-export type ChannelRef = { id?: string; handle?: string; label?: string }
+export type ChannelRef = { id?: string; handle?: string; label?: string; color?: string }
 
 /** A channel's numbers. `subs` is null when the channel hides its subscriber count. */
 export type Stats = { title: string; subs: number | null; views: number; videos: number }
@@ -32,8 +36,9 @@ export const parseChannels = (text: string): ChannelRef[] => {
     if (!x || typeof x !== 'object') return []
     const o = x as Record<string, unknown>
     const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim() : undefined
-    if (typeof o.id === 'string' && o.id.trim()) return [{ id: o.id.trim(), label }]
-    if (typeof o.handle === 'string' && o.handle.trim()) return [{ handle: normHandle(o.handle.trim()), label }]
+    const color = typeof o.color === 'string' && o.color.trim() ? o.color.trim() : undefined
+    if (typeof o.id === 'string' && o.id.trim()) return [{ id: o.id.trim(), label, color }]
+    if (typeof o.handle === 'string' && o.handle.trim()) return [{ handle: normHandle(o.handle.trim()), label, color }]
     return []
   })
 }
@@ -81,48 +86,6 @@ export const statusText = (refs: ChannelRef[], last: Last): string => {
 export const dayOf = (ms: number, offsetMin: number): string => new Date(ms + offsetMin * 60000).toISOString().slice(0, 10)
 
 /** The `/stats` table: numbers, the change since the latest earlier day kept, and the time of the fetch. */
-/** The table as its header line, one line per channel and the notes under it, columns padded for a monospace font. */
-export const statsParts = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): { head: string; rows: string[]; notes: string[] } => {
-  const before = Object.keys(daily).filter(d => d < today).sort().pop()
-  const prev = before ? daily[before] ?? {} : {}
-  const head = ['Channel', 'Subs', 'to 1k', 'Views', 'Videos']
-  const rows = refs.map(r => {
-    const k = refKey(r)
-    const s = last[k]
-    const p = prev[k]
-    if (!s) return [nameOf(r, s), '–', '', '–', '–']
-    const delta = (now: number | null, then: number | null | undefined) =>
-      now === null || then === undefined || then === null ? '' : ` (${signed(now - then)})`
-    return [
-      nameOf(r, s),
-      s.subs === null ? 'hidden' : `${full(s.subs)}${delta(s.subs, p?.subs)}`,
-      s.subs === null ? '' : s.subs >= SUB_GOAL ? 'done' : full(SUB_GOAL - s.subs),
-      `${full(s.views)}${delta(s.views, p?.views)}`,
-      `${full(s.videos)}${delta(s.videos, p?.videos)}`,
-    ]
-  })
-  const all = [head, ...rows]
-  const widths = head.map((_, i) => Math.max(...all.map(row => (row[i] ?? '').length)))
-  const line = (row: string[]) => row.map((c, i) => (i === 0 ? c.padEnd(widths[i] ?? 0) : c.padStart(widths[i] ?? 0))).join('  ').trimEnd()
-  const ats = refs.map(r => last[refKey(r)]?.at).filter((n): n is number => typeof n === 'number')
-  const at = ats.length > 0 ? Math.min(...ats) : undefined
-  const when = at === undefined ? 'not fetched yet' : `fetched ${new Date(at + offsetMin * 60000).toISOString().slice(0, 16).replace('T', ' ')}`
-  return {
-    head: line(head),
-    rows: rows.map(line),
-    notes: [
-      `${before ? `Changes since ${before}.` : 'No earlier day kept yet: changes show from tomorrow.'} Numbers ${when}.${note ? ` ${note}` : ''}`,
-      'Watch hours are not shown: they need the YouTube Analytics API (OAuth), which an API key cannot reach.',
-    ],
-  }
-}
-
-/** The same table as Markdown text, for a terminal transcript or a log. */
-export const statsTable = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): string => {
-  const p = statsParts(refs, last, daily, today, offsetMin, note)
-  return ['```', p.head, ...p.rows, '```', ...p.notes].join('\n')
-}
-
 const HINT = 'channel-stats: set a YouTube API key'
 
 /** What a session of the module holds between refreshes. */
@@ -214,70 +177,47 @@ async function refresh($: EngineInterface, ctx: Ctx) {
   return ctx.inFlight
 }
 
-/** One coloured piece of a drawn row; `color` is a theme key, so it follows light and dark themes. */
-export type Piece = { text: string; color?: string; bold?: boolean; dim?: boolean }
-
-const PALETTE = ['success', 'suggestion', 'claude', 'merged', 'warning', 'autoAccept']
-
 /**
- * The reply as drawn rows: per channel its name, subscribers with the day's change, a `[###----]` bar
- * to 1,000 with the percent and how many to go, views and videos, each column padded to line up;
- * and one dim line saying when the numbers are from.
+ * The reply, in the set's look: per channel its name, subscribers with the day's change, a bar to 1,000
+ * with the percent, how many to go, views with the change, and videos; a footnote saying when the numbers
+ * are from.
  */
-export const statsView = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): { rows: Piece[][][]; foot: string } => {
+export const statsReply = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): Reply => {
   const before = Object.keys(daily).filter(d => d < today).sort().pop()
   const prev = before ? daily[before] ?? {} : {}
-  const BAR = 10
-  const cells = refs.map((r, i) => {
+  // numbers are right-aligned within their column, so the digits line up
+  const subsText = (r: ChannelRef) => { const s = last[refKey(r)]; return !s ? '' : s.subs === null ? 'hidden' : full(s.subs) }
+  const wSubs = Math.max(0, ...refs.map(r => subsText(r).length))
+  const wViews = Math.max(0, ...refs.map(r => full(last[refKey(r)]?.views ?? 0).length))
+  const wVideos = Math.max(0, ...refs.map(r => full(last[refKey(r)]?.videos ?? 0).length))
+  const rows: Row[] = refs.map(r => {
     const s = last[refKey(r)]
     const p = prev[refKey(r)]
-    const change = (now: number | null | undefined, then: number | null | undefined) =>
-      now == null || then == null || now === then ? '' : signed(now - then)
-    const subs = s?.subs ?? null
+    const name = nameOf(r, s)
+    const nameCell: Cell = [title(name, r.color ?? nameColor(name))]
+    if (!s) return [nameCell, [label('not fetched yet')]]
+    const subs = s.subs
     const frac = subs === null ? null : Math.min(1, subs / SUB_GOAL)
-    return {
-      color: PALETTE[i % PALETTE.length] ?? 'text',
-      name: nameOf(r, s),
-      subs: subs === null ? (s ? 'hidden' : '–') : full(subs),
-      subsWord: subs === 1 ? 'sub ' : 'subs',
-      subsChange: change(subs, p?.subs),
-      filled: frac === null ? 0 : Math.round(frac * BAR),
-      percent: frac === null ? '' : `${frac < 0.1 && frac > 0 ? (frac * 100).toFixed(1) : Math.floor(frac * 100)}%`,
-      toGo: subs === null ? '' : subs >= SUB_GOAL ? 'reached!' : `${full(SUB_GOAL - subs)} to go`,
-      views: s ? full(s.views) : '–',
-      viewsChange: change(s?.views, p?.views),
-      videos: s ? full(s.videos) : '–',
-    }
-  })
-  const w = (pick: (c: (typeof cells)[number]) => string) => Math.max(...cells.map(c => pick(c).length))
-  const W = { name: w(c => c.name), subs: w(c => c.subs), percent: w(c => c.percent), toGo: w(c => c.toGo), views: w(c => c.views), videos: w(c => c.videos) }
-  const rows = cells.map(c => {
-    const delta = (d: string): Piece[] => (d ? [{ text: ` ${d}`, color: d.startsWith('-') ? 'error' : 'success' }] : [])
+    const pct = frac === null ? '' : `${frac < 0.1 && frac > 0 ? (frac * 100).toFixed(1) : Math.floor(frac * 100)}%`
+    const delta = (a: number | null, b: number | null | undefined) => (a == null || b == null ? null : a - b)
     return [
-      [{ text: c.name.padEnd(W.name), color: c.color, bold: true }],
-      [{ text: c.subs.padStart(W.subs), bold: true }, { text: ` ${c.subsWord}`, dim: true }, ...delta(c.subsChange)],
-      [
-        { text: '[', dim: true },
-        { text: '#'.repeat(c.filled), color: 'claude' },
-        { text: '-'.repeat(BAR - c.filled), color: 'inactive' },
-        { text: ']', dim: true },
-        { text: ` ${c.percent.padStart(W.percent)}`, bold: true },
-        { text: `  ${c.toGo.padEnd(W.toGo)}`, dim: true },
-      ],
-      [{ text: c.views.padStart(W.views) }, { text: ' views', dim: true }, ...delta(c.viewsChange)],
-      [{ text: c.videos.padStart(W.videos) }, { text: ' videos', dim: true }],
+      nameCell,
+      [num(subsText(r).padStart(wSubs)), label(subs === 1 ? ' sub' : ' subs'), ...change(delta(subs, p?.subs))],
+      bar(frac, 12, frac !== null && frac >= 1 ? 'good' : 'work', pct),
+      [label(subs === null ? '' : subs >= SUB_GOAL ? 'reached!' : `${full(SUB_GOAL - subs)} to go`)],
+      [num(full(s.views).padStart(wViews)), label(' views'), ...change(delta(s.views, p?.views))],
+      [num(full(s.videos).padStart(wVideos)), label(' videos')],
     ]
   })
   const ats = refs.map(r => last[refKey(r)]?.at).filter((n): n is number => typeof n === 'number')
   const at = ats.length > 0 ? Math.min(...ats) : undefined
-  const time = at === undefined ? 'not fetched yet' : `updated ${new Date(at + offsetMin * 60000).toISOString().slice(11, 16)}`
   const foot = [
-    time,
+    at === undefined ? 'not fetched yet' : `updated ${hhmm(at, offsetMin)}`,
     before ? `changes since ${before}` : 'daily changes start tomorrow',
     'watch hours need YouTube Analytics (not connected)',
     ...(note ? [note] : []),
   ].join(' · ')
-  return { rows, foot }
+  return { title: 'YouTube channels', rows: align(rows), foot, empty: 'No channels listed.' }
 }
 
 /** `/channel-stats`: fetches if a key is found, then answers the table; the mod draws it as a boxed table. */
@@ -294,7 +234,7 @@ async function tableText($: EngineInterface, ctx: Ctx) {
   const last = ((await $.store.get('last')) ?? {}) as Last
   const daily = ((await $.store.get('daily')) ?? {}) as Daily
   const now = await $.clock.now()
-  return statsTable(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note)
+  return remember(statsReply(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note))
 }
 
 /**
@@ -354,28 +294,9 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'channel-stats' }, $ => showStats($, ctx))
 
-  // the reply in the chat: one row per channel (name, subscribers, a bar to 1,000, views, videos) in a
-  // rounded box, columns lined up in a monospace font, and a dim line saying when the numbers are from
+  // the reply in the chat, drawn in the set's look (see STYLE/STYLE.md)
   on('ui.render', { component: 'CommandOutput', props: { command: 'channel-stats' } }, async ($, e, next) => {
-    if (e.props.isErrored || !e.props.text.includes('```') || ctx.refs.length === 0) return next(e)
-    const last = ((await $.store.get('last')) ?? {}) as Last
-    const daily = ((await $.store.get('daily')) ?? {}) as Daily
-    const now = await $.clock.now()
-    const view = statsView(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note)
-    const { Box, Text } = $.ui.resolve(e)
-    return (
-      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
-        <Box><Text bold>YouTube channels</Text></Box>
-        {view.rows.map((row, i) => (
-          // one line per channel: the columns sit side by side with two spaces between, never wrapping
-          <Box key={`row-${i}`} flexDirection="row" flexWrap="nowrap">
-            {row.flatMap((cell, j) => [...(j > 0 ? [{ text: '  ' }] : []), ...cell]).map(piece => (
-              <Text mono color={piece.color} bold={piece.bold} dimColor={piece.dim} wrap="truncate-end">{piece.text}</Text>
-            ))}
-          </Box>
-        ))}
-        <Box key="foot"><Text dimColor size="footnote">{view.foot}</Text></Box>
-      </Box>
-    )
+    const reply = e.props.isErrored ? undefined : recall(e.props.text)
+    return reply ? replyBox($.ui.resolve(e), reply) : next(e)
   })
 }

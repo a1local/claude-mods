@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { bandLine, localMs, parseSchedule, span, statusOf } from '../hooks/register'
+import { nameColor } from '../hooks/look'
+import { bandRows, localMs, parseSchedule, scheduleReply, span, statusOf } from '../hooks/register'
 
 const HOME = '/home/demo'
 const FILE = `${HOME}/.claude-mods/schedule.json`
@@ -9,30 +10,16 @@ const OFFSET = 8 * 60 // +0800
 // 15 Jan 2027, 13:30 local (05:30 UTC)
 const NOW = Date.UTC(2027, 0, 15, 5, 30)
 
-// out of order on purpose: the pane sorts by time
+// out of order on purpose: the reply sorts by time
 const ITEMS = [
-  { at: '2027-01-16T00:05', channel: 'Demo Channel', kind: 'film', title: 'Tomorrow Film', platforms: ['youtube'] },
+  { at: '2027-01-16T00:05', channel: 'Demo Channel', kind: 'film', title: 'Tomorrow Film', platforms: ['youtube'], scheduled: true },
   { at: '2027-01-15T14:00', channel: 'Demo Channel', kind: 'short', title: 'Soon Short', platforms: ['youtube', 'facebook'] },
   { at: '2027-01-15T00:05', channel: 'Demo Channel', kind: 'film', title: 'Morning Film', scheduled: true },
-  { at: '2027-01-15T09:05', channel: 'Other Channel', kind: 'short', title: 'Missed Short', platforms: ['tiktok'] },
+  { at: '2027-01-15T09:05', channel: 'Other Channel', kind: 'short', title: 'Missed Short', platforms: ['tiktok'], color: 'merged' },
   { at: '2027-01-15T13:00', channel: 'Demo Channel', kind: 'short', title: 'Posted Short', done: true },
   { at: '2027-01-15T17:05', channel: 'Demo Channel', kind: 'short', title: 'Evening Short' },
   { at: '2027-01-17T09:05', channel: 'Demo Channel', kind: 'short', title: 'Too Far Ahead' },
 ]
-
-const PANE = {
-  plugin: 'publish-schedule',
-  component: 'Pane',
-  requestId: 'publish-schedule',
-  props: {
-    title: 'Publishing',
-    isFocused: false,
-    bodyColumns: 100,
-    placement: 'dock',
-    scroll: { offset: 0, bodyRows: 30 },
-    view: {},
-  },
-} as const
 
 const BAND = {
   plugin: 'publish-schedule',
@@ -48,17 +35,20 @@ const BAND = {
   },
 } as const
 
+const run = (args = '') => ({ command: 'publishing', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const)
+
+const output = (surface: 'terminal' | 'desktop', text: string) => ({
+  plugin: 'publish-schedule', surface, component: 'CommandOutput',
+  props: { command: 'publishing', args: '', text, isErrored: false },
+} as const)
+
 const ran = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
 
 /** The engine beneath the mod: a clock, `date +%z`, HOME, and the schedule file in memory. */
 const engine = (on: On, items: unknown[] | null, nowMs = NOW) => {
-  const disk = { text: JSON.stringify(items, null, 2), writes: 0, opened: [] as string[] }
+  const disk = { text: JSON.stringify(items, null, 2), writes: 0 }
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'publishing' } }))
-  on('ui.open', (_, e) => {
-    disk.opened.push(e.id)
-    return { value: { isPlaced: true } }
-  })
   on('clock.now', () => ({ value: nowMs }))
   on('clock.every', () => ({ value: undefined }))
   on('process.run', (_, e) => (e.argv[0] === 'date' ? ran('+0800\n') : e.argv[0] === 'printenv' ? ran(`${HOME}\n`) : ran('')))
@@ -76,78 +66,107 @@ const engine = (on: On, items: unknown[] | null, nowMs = NOW) => {
   return disk
 }
 
-test('the pane lists today and tomorrow in time order, each with its status', async ($, on) => {
+test('/publishing answers in the chat: a dim line per day, numbered rows, counts in the footnote', async ($, on) => {
   engine(on, ITEMS)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const out = await $.command.run(run())
+  expect(out.text?.split('\n')).toEqual([
+    'Publishing',
+    'Today, Fri 15 Jan',
+    '1.  00:05  Demo Channel   Film   Morning Film          done',
+    '2.  09:05  Other Channel  Short  Missed Short   TT     overdue 4 h 25 min',
+    '3.  13:00  Demo Channel   Short  Posted Short          done',
+    '4.  14:00  Demo Channel   Short  Soon Short     YT FB  in 30 min',
+    '5.  17:05  Demo Channel   Short  Evening Short         later',
+    'Tomorrow, Sat 16 Jan',
+    '6.  00:05  Demo Channel   Film   Tomorrow Film  YT     scheduled',
+    '2 due today · 1 overdue · updated 13:30',
+  ])
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...PANE, surface })
-    const row = async (title: string) => ui.find({ type: 'Box', key: `${ITEMS.find(i => i.title === title)?.at}|${ITEMS.find(i => i.title === title)?.channel}|${title}` })
-    const statusText = async (text: string | RegExp) => ui.find({ type: 'Text', text })
-
-    expect((await ui.find({ type: 'Box', key: '2027-01-15' }))?.text).toMatch(/^Today, Fri 15 Jan00:05/)
-    // scheduled and past its time: done
-    expect((await row('Morning Film'))?.text).toMatch(/^00:05Demo Channel +Film +Morning Filmdone$/)
-    expect((await row('Missed Short'))?.text).toMatch(/^09:05Other Channel *Short *Missed ShortTToverdue 4 h 25 minDone$/)
-    expect((await row('Posted Short'))?.text).toMatch(/Posted Shortdone$/)
-    expect((await row('Soon Short'))?.text).toMatch(/^14:00.*Soon ShortYT FBin 30 min/)
-    expect((await row('Evening Short'))?.text).toMatch(/^17:05.*Evening Shortlater/)
-    expect((await row('Tomorrow Film'))?.text).toMatch(/^00:05.*Tomorrow FilmYTlater/)
-    expect(await row('Too Far Ahead')).toBeUndefined()
-
-    expect((await statusText('done'))?.props.color).toBe('success')
-    expect((await statusText(/^overdue/))?.props.color).toBe('error')
-    expect((await statusText('in 30 min'))?.props.color).toBe('warning')
-
-    // time order within today
-    const today = (await ui.find({ type: 'Box', key: '2027-01-15' }))?.text ?? ''
-    const order = ['Morning Film', 'Missed Short', 'Posted Short', 'Soon Short', 'Evening Short'].map(t => today.indexOf(t))
-    expect(order).toEqual([...order].sort((a, b) => a - b))
-    expect((await ui.find({ type: 'Box', key: '2027-01-16' }))?.text).toMatch(/^Tomorrow, Sat 16 Jan/)
+    const ui = await $.ui.mount(output(surface, out.text ?? ''))
+    expect((await ui.find({ type: 'Text', text: 'Publishing' }))?.props.bold).toBe(true)
+    expect((await ui.find({ type: 'Box', key: 'row-0' }))?.text).toBe('Today, Fri 15 Jan')
+    expect((await ui.find({ type: 'Text', text: 'Today, Fri 15 Jan' }))?.props.dimColor).toBe(true)
+    expect((await ui.find({ type: 'Box', key: 'row-2' }))?.text).toBe('2.  09:05  Other Channel  Short  Missed Short   TT     overdue 4 h 25 min')
+    expect((await ui.find({ type: 'Box', key: 'row-6' }))?.text).toBe('Tomorrow, Sat 16 Jan')
+    expect(await ui.find({ type: 'Text', text: /Too Far Ahead/ })).toBeUndefined()
+    // channels bold in their colour: the entry's own `color`, else the steady colour for the name
+    const demo = await ui.find({ type: 'Text', text: 'Demo Channel' })
+    expect(demo?.props.color).toBe(nameColor('Demo Channel'))
+    expect(demo?.props.bold).toBe(true)
+    expect((await ui.find({ type: 'Text', text: 'Other Channel' }))?.props.color).toBe('merged')
+    expect((await ui.find({ type: 'Text', text: 'YT FB' }))?.props.dimColor).toBe(true)
+    expect((await ui.find({ type: 'Box', key: 'foot' }))?.text).toBe('2 due today · 1 overdue · updated 13:30')
     await ui.unmount()
   }
 })
 
-test('/publishing opens the pane', async ($, on) => {
-  const disk = engine(on, ITEMS)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.command.run({ command: 'publishing', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
-  expect(disk.opened).toEqual(['publish-schedule'])
+test('statuses are coloured by tone', async ($, on) => {
+  engine(on, ITEMS)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const out = await $.command.run(run())
+  const ui = await $.ui.mount(output('terminal', out.text ?? ''))
+  expect((await ui.find({ type: 'Text', text: 'done' }))?.props.color).toBe('success')
+  const overdue = await ui.find({ type: 'Text', text: /^overdue/ })
+  expect(overdue?.props.color).toBe('error')
+  expect(overdue?.props.bold).toBe(true)
+  expect((await ui.find({ type: 'Text', text: 'in 30 min' }))?.props.color).toBe('warning')
+  expect((await ui.find({ type: 'Text', text: 'scheduled' }))?.props.color).toBe('suggestion')
+  expect((await ui.find({ type: 'Text', text: 'later' }))?.props.dimColor).toBe(true)
+  await ui.unmount()
 })
 
-test('Done writes done: true back to the file', async ($, on) => {
+test('/publishing done 2 writes done: true to row 2 and answers the refreshed reply', async ($, on) => {
   const disk = engine(on, ITEMS)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await $.command.run(run())
+  const out = await $.command.run(run('done 2'))
 
-  await ui.press({ key: 'done:2027-01-15T09:05|Other Channel|Missed Short' })
   expect(disk.writes).toBe(1)
-  const saved = JSON.parse(disk.text) as Array<{ title: string; done?: boolean }>
+  const saved = JSON.parse(disk.text) as Array<{ title: string; done?: boolean; color?: string }>
   expect(saved.find(i => i.title === 'Missed Short')?.done).toBe(true)
   // the other entries are kept as they were
   expect(saved.find(i => i.title === 'Soon Short')?.done).toBeUndefined()
+  expect(saved.find(i => i.title === 'Missed Short')?.color).toBe('merged')
   expect(saved.length).toBe(ITEMS.length)
 
-  const row = await ui.find({ type: 'Box', key: '2027-01-15T09:05|Other Channel|Missed Short' })
-  expect(row?.text).toMatch(/done$/)
+  const lines = out.text?.split('\n') ?? []
+  expect(lines[3]).toBe('2.  09:05  Other Channel  Short  Missed Short   TT     done')
+  expect(lines[lines.length - 1]).toBe('marked 2 done · 2 due today · updated 13:30')
+  // the reply is drawn as the box too
+  const ui = await $.ui.mount(output('desktop', out.text ?? ''))
+  expect((await ui.find({ type: 'Box', key: 'foot' }))?.text).toBe('marked 2 done · 2 due today · updated 13:30')
   await ui.unmount()
 })
 
-test('the band shows the next item due within the hour', async ($, on) => {
-  engine(on, ITEMS.filter(i => i.title !== 'Missed Short'))
+test('/publishing done with no such row writes nothing', async ($, on) => {
+  const disk = engine(on, ITEMS)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const out = await $.command.run(run('done 9'))
+  expect(out.text).toBe('publishing: no row 9. Rows run 1 to 6; /publishing lists them.')
+  expect(disk.writes).toBe(0)
+})
+
+test('the band: one line per item due within the hour or overdue; ✕ closes one, /publishing brings it back', async ($, on) => {
+  engine(on, ITEMS)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Box', key: 'publish-next' }))?.text).toBe('Next:Short 14:00 Demo Channel "Soon Short"(in 30 min)')
-  await ui.unmount()
-})
+  const missed = '2027-01-15T09:05|Other Channel|Missed Short'
+  const soon = '2027-01-15T14:00|Demo Channel|Soon Short'
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short✕')
+  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('in 30 min           14:00  Demo Channel   Short  Soon Short✕')
+  expect((await ui.find({ type: 'Text', text: /^overdue/ }))?.props.color).toBe('error')
+  expect((await ui.find({ type: 'Text', text: 'in 30 min' }))?.props.color).toBe('warning')
+  // lines that are done, later or tomorrow stay off the band
+  expect(await ui.find({ type: 'Text', text: /Evening Short/ })).toBeUndefined()
 
-test('the band leads with what is overdue', async ($, on) => {
-  engine(on, ITEMS)
-  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  const line = await ui.find({ type: 'Box', key: 'publish-next' })
-  expect(line?.text).toBe('Overdue:Short 09:05 Other Channel "Missed Short"(4 h 25 min ago) +1 more')
-  expect((await ui.find({ type: 'Text', text: 'Overdue:' }))?.props.color).toBe('error')
+  await ui.press({ key: `close-${missed}` })
+  expect(await ui.find({ type: 'Box', key: missed })).toBeUndefined()
+  expect((await ui.find({ type: 'Box', key: soon }))?.text).toContain('Soon Short')
+
+  await $.command.run(run())
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toContain('Missed Short')
   await ui.unmount()
 })
 
@@ -164,12 +183,11 @@ test('nothing within the hour, no band', async ($, on) => {
   await ui.unmount()
 })
 
-test('no schedule file says so in the pane', async ($, on) => {
+test('no schedule file says so in the reply', async ($, on) => {
   engine(on, null)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /No schedule file/ }))?.text).toBe(`No schedule file at ${FILE}`)
-  await ui.unmount()
+  const out = await $.command.run(run())
+  expect(out.text).toBe(`Publishing\nNo schedule file at ${FILE}`)
 })
 
 test('times, spans and statuses', () => {
@@ -182,5 +200,6 @@ test('times, spans and statuses', () => {
   expect(span(120 * 60000)).toBe('2 h')
   const soon = rows.find(r => r.title === 'Soon Short')
   expect(soon && statusOf(soon, NOW)).toBe('soon')
-  expect(bandLine(rows.filter(r => r.title === 'Evening Short'), NOW, OFFSET)).toBeUndefined()
+  expect(bandRows(rows.filter(r => r.title === 'Evening Short'), NOW, OFFSET)).toEqual([])
+  expect(scheduleReply([], NOW, OFFSET, NOW).empty).toBe('Nothing to publish today or tomorrow.')
 })

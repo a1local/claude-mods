@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { crossing, isHeavy, parseDf, parseGpu, parseSwap, statusText } from '../hooks/register'
+import { crossing, isHeavy, machineReply, parseDf, parseDisk, parseGpu, parseSwap, statusText, toneOf, unexpandHome } from '../hooks/register'
 
 const HOME = '/home/demo'
 const CONFIG = `${HOME}/.claude-mods/machine-monitor.json`
@@ -19,6 +19,7 @@ const host = (argv: readonly string[], load: string, opts: { gpu?: boolean; free
   switch (argv[0]) {
     case 'printenv': return ran(`${HOME}\n`)
     case 'getconf': return ran('10\n')
+    case 'date': return ran('+1000\n')
     case 'sysctl': return argv[2] === 'vm.loadavg'
       ? (load ? ran(`{ ${load} 5.10 4.33 }\n`) : failed())
       : ran('total = 6144.00M  used = 4915.20M  free = 1228.80M  (encrypted)\n')
@@ -31,6 +32,7 @@ const host = (argv: readonly string[], load: string, opts: { gpu?: boolean; free
 
 const setup = (on: On, load: string, opts: { gpu?: boolean; freeKb?: number; du?: string; config?: string } = {}) => {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: { command: 'machine' } }))
   on('process.run', (_, e) => host(e.argv, load, opts))
   // no config file: the mod reads '{}' as all defaults
   on('fs.read', (_, e) => ({ value: e.path === CONFIG && opts.config ? opts.config : '{}' }))
@@ -147,9 +149,10 @@ test('low disk and big temp folders warn once per crossing', async ($, on) => {
   await clock.advance(5000)
   await clock.advance(5000)
 
-  expect(toasts.filter(t => t.startsWith('Only 10 GB free')).length).toBe(1)
-  expect(toasts.filter(t => t.startsWith('Temp folders hold 30 GB')).length).toBe(1)
+  expect(toasts.filter(t => t === 'Disk: only 10 GB free on ~').length).toBe(1)
+  expect(toasts.filter(t => t === 'Temp folders: 30 GB (limit 20 GB)').length).toBe(1)
   expect(notes.length).toBe(2)
+  expect(notes).toContain('Disk: only 10 GB free on ~')
   expect(lines[lines.length - 1]).toBe('load 3.0/10 · GPU 100% · swap 4.8/6.0G · disk 10G free · temp 30G')
 })
 
@@ -170,4 +173,114 @@ test('parsers and the pattern match', () => {
   expect(crossing(false, 19, 20, true)).toBe('raise')
   expect(crossing(true, 20.5, 20, true)).toBe(undefined)
   expect(crossing(true, 21.5, 20, true)).toBe('clear')
+})
+
+/** `/machine` typed at the prompt. */
+const RUN = { command: 'machine', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
+// 21:45 at +1000
+const AT = Date.UTC(2027, 0, 15, 11, 45)
+
+test('/machine answers one row per measure with a bar against its limit', async ($, on) => {
+  mock.clock(on, { now: AT })
+  setup(on, '6.21')
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const out = await $.command.run(RUN)
+  expect((out.text ?? '').split('\n')).toEqual([
+    'Machine',
+    'load    [######----]   62%  6.2 of 10 cores',
+    'GPU     [##########]  100%',
+    'swap    [########--]   80%  4.8 of 6.0 GB',
+    'disk ~  [#########-]   91%  41 GB free of 460 GB',
+    'limit 20 · heavy jobs held back above it · updated 21:45',
+  ])
+})
+
+test('/machine shows the newest measurements, not the ones from the start', async ($, on) => {
+  const clock = mock.clock(on, { now: AT })
+  let load = '6.21'
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: { command: 'machine' } }))
+  on('process.run', (_, e) => host(e.argv, load))
+  on('fs.read', () => ({ value: '{}' }))
+  on('ui.status', () => ({ value: undefined }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  load = '9.50'
+  // 4 s later the start's numbers are fresh enough
+  await clock.set(AT + 4000)
+  expect((await $.command.run(RUN)).text).toContain('6.2 of 10 cores')
+  // a minute on, the refresh (or /machine itself, when they are over 10 s old) has measured again
+  await clock.set(AT + 60_000)
+  expect((await $.command.run(RUN)).text).toContain('9.5 of 10 cores')
+})
+
+test('the /machine reply draws in the chat as rows coloured by tone, on terminal and desktop', async ($, on) => {
+  const clock = mock.clock(on, { now: AT })
+  setup(on, '16.00', {
+    freeKb: 10 * 1048576,
+    du: `${15 * 1048576}\t${TMP}/bundle-1\n${15 * 1048576}\t${TMP}/bundle-2\n`,
+    config: JSON.stringify({ tempGlobs: [`${TMP}/bundle-*`] }),
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(5000)
+  const out = await $.command.run(RUN)
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'machine-monitor', surface, component: 'CommandOutput',
+      props: { command: 'machine', args: '', text: out.text ?? '', isErrored: false },
+    })
+    expect((await ui.find({ type: 'Text', text: 'Machine' }))?.props.bold).toBe(true)
+    expect((await ui.find({ type: 'Box', key: 'row-0' }))?.text).toBe('load    [##########]  160%  16.0 of 10 cores')
+    expect((await ui.find({ type: 'Box', key: 'row-3' }))?.text).toBe('disk ~  [##########]   98%  10 GB free of 460 GB')
+    expect((await ui.find({ type: 'Box', key: 'row-4' }))?.text).toBe('temp    [##########]  150%  30.0 of 20 GB')
+    expect((await ui.find({ type: 'Box', key: 'foot' }))?.text).toBe('limit 20 · heavy jobs held back above it · updated 21:45')
+    // load 16 of the limit 20 is close to it: warn; GPU full: warn; 10 GB free under the 20 GB warning: bad
+    expect((await ui.find({ type: 'Text', text: '160%' }))?.props.color).toBe('warning')
+    expect((await ui.find({ type: 'Text', text: ' 98%' }))?.props.color).toBe('error')
+    expect((await ui.find({ type: 'Text', text: '150%' }))?.props.color).toBe('error')
+    expect((await ui.find({ type: 'Text', text: /^load/ }))?.props.mono).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the reply\'s tones: good under 70% of the limit, warn above, bad over it', () => {
+  expect(toneOf(0.3)).toBe('good')
+  expect(toneOf(0.7)).toBe('warn')
+  expect(toneOf(1)).toBe('warn')
+  expect(toneOf(1.2)).toBe('bad')
+  const reply = machineReply({ load: 3, cpus: 10, gpu: 20, swap: { usedGb: 5.5, totalGb: 6 }, disks: [], loadLimit: 20, freeGbWarn: 20, tempGbWarn: 20, at: AT, offsetMin: 600 })
+  const colorOf = (row: number, text: string) => reply.rows[row]?.find(p => p.text === text)?.color
+  expect(colorOf(0, '###')).toBe('success')
+  expect(colorOf(1, '##')).toBe('success')
+  expect(colorOf(2, '#########')).toBe('warning')
+  expect(machineReply({ disks: [], loadLimit: 20, freeGbWarn: 20, tempGbWarn: 20, offsetMin: 0 }).foot).toContain('not measured yet')
+  expect(parseDisk(DF(41 * 1048576))?.freeGb).toBe(41)
+  expect(unexpandHome(`${HOME}/Renders`, HOME)).toBe('~/Renders')
+  expect(unexpandHome('/Volumes/Scratch', HOME)).toBe('/Volumes/Scratch')
+})
+
+test('only programs being run count, not words in their arguments', () => {
+  const heavy = ['remotion render', 'remotion still', 'blender -b', 'ffmpeg', 'render-episode.sh']
+  // run: held back over the limit
+  for (const cmd of [
+    'cd kit && npx remotion render /tmp/b Film out.mp4',
+    'nohup /opt/homebrew/bin/blender -b --factory-startup -P film.py -- 06-03 --anim &',
+    'FOO=1 nice -n 5 ffmpeg -i in.mov out.mp4',
+    'cd kit && scripts/render-episode.sh ep10 ../out.mp4',
+    'bash kit/scripts/render-episode.sh ep10 out.mp4',
+    'npm exec remotion still src/x.tsx Thumb t.png',
+    'ls && ffmpeg -version',
+  ]) expect([cmd, isHeavy(cmd, heavy)]).toEqual([cmd, true])
+  // only mentioned: let through (each of these was refused before)
+  for (const cmd of [
+    'ps -axo pid,command | grep -E "remotion|Blender|blender|ffmpeg|render-episode"',
+    'grep -c "progress" kit/scripts/render-episode.sh',
+    'ls kit/scripts/render-episode.sh',
+    'echo "run ffmpeg later"',
+    'git log --oneline -- kit/scripts/render-episode.sh',
+    'ffprobe in.mp4',
+  ]) expect([cmd, isHeavy(cmd, heavy)]).toEqual([cmd, false])
 })

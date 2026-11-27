@@ -1,20 +1,22 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { align, bandLine, cut, hhmm, label, nameColor, num, parseOffset, recall, remember, replyBox, title, toned } from './look'
+import type { Cell, Piece, Reply } from './look'
 import type { Row, ScheduleItem, Status } from '../types'
 
 // The schedule lives in one JSON file (default ~/.claude-mods/schedule.json): a list of
-// `{ at, channel, kind, title, done?, scheduled?, platforms? }`. See README.md. Read every minute.
-const PANE = 'publish-schedule'
-const PANE_TITLE = 'Publishing'
+// `{ at, channel, kind, title, done?, scheduled?, platforms?, color? }`. See README.md. Read every minute.
 const POLL_MS = 60 * 1000
 const SOON_MS = 60 * 60 * 1000
-const EARLIER_DAYS = 7 // overdue items this many days back still show, under "Earlier"
+const EARLIER_DAYS = 7 // overdue items this many days back still show, under "Earlier, not done"
+const TITLE_MAX = 40
 
 const rows = atom({ plugin: 'publish-schedule', key: 'rows' } as const, [])
 const nowAtom = atom({ plugin: 'publish-schedule', key: 'nowMs' } as const, 0)
 const offsetAtom = atom({ plugin: 'publish-schedule', key: 'offsetMin' } as const, 0)
 const problemAtom = atom({ plugin: 'publish-schedule', key: 'problem' } as const, '')
+const hiddenAtom = atom({ plugin: 'publish-schedule', key: 'hidden' } as const, [])
 
 /** `2026-11-28T14:00` (local, `offsetMin` east of UTC) as epoch ms, or NaN. */
 export const localMs = (at: string, offsetMin: number): number => {
@@ -28,9 +30,6 @@ const local = (ms: number, offsetMin: number) => new Date(ms + offsetMin * 60000
 
 /** The local day, `2026-11-28`. */
 export const dayKey = (ms: number, offsetMin: number): string => local(ms, offsetMin).toISOString().slice(0, 10)
-
-/** The local time, `14:00`. */
-export const hhmm = (ms: number, offsetMin: number): string => local(ms, offsetMin).toISOString().slice(11, 16)
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -59,6 +58,7 @@ const asItem = (x: unknown): ScheduleItem | undefined => {
     done: o.done === true,
     scheduled: o.scheduled === true,
     platforms: Array.isArray(o.platforms) ? o.platforms.filter((p): p is string => typeof p === 'string') : undefined,
+    color: typeof o.color === 'string' && o.color.trim() ? o.color.trim() : undefined,
   }
 }
 
@@ -88,14 +88,14 @@ export const span = (ms: number): string => {
   return h > 0 ? `${h} h${min % 60 ? ` ${min % 60} min` : ''}` : `${min} min`
 }
 
-const STATUS_COLOR: Record<Status, string> = { done: 'success', overdue: 'error', soon: 'warning', later: 'subtle' }
-
-export const statusText = (r: Row, nowMs: number): string => {
+/** The status and its tone: done good, due within the hour warn, overdue bad, scheduled info, later dim. */
+export const statusPiece = (r: Row, nowMs: number): Piece => {
   const s = statusOf(r, nowMs)
-  return s === 'done' ? 'done'
-    : s === 'overdue' ? `overdue ${span(nowMs - r.atMs)}`
-    : s === 'soon' ? `in ${span(r.atMs - nowMs)}`
-    : 'later'
+  return s === 'done' ? toned('done', 'good')
+    : s === 'overdue' ? toned(`overdue ${span(nowMs - r.atMs)}`, 'bad', true)
+    : s === 'soon' ? toned(`in ${span(r.atMs - nowMs)}`, 'warn')
+    : r.scheduled ? toned('scheduled', 'info')
+    : label('later')
 }
 
 const PLATFORM_SHORT: Record<string, string> = { youtube: 'YT', facebook: 'FB', tiktok: 'TT', instagram: 'IG' }
@@ -104,16 +104,8 @@ export const platformsText = (ps: string[] | undefined): string =>
 
 const kindText = (k: ScheduleItem['kind']) => (k === 'film' ? 'Film' : 'Short')
 
-const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, Math.max(1, max - 1))}…` : text)
-
-/** A channel's colour: the same name always gets the same theme colour. */
-const PALETTE = ['suggestion', 'claude', 'merged', 'autoAccept', 'planMode']
-export const channelColor = (channel: string): string => {
-  if (!channel) return 'text'
-  let h = 0
-  for (const ch of channel) h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  return PALETTE[h % PALETTE.length] ?? 'text'
-}
+/** The channel, bold, in the entry's own `color`, else the set's steady colour for the name. */
+const channelPiece = (r: Row): Piece => title(r.channel, r.color ?? nameColor(r.channel))
 
 export type Group = { key: string; label: string; rows: Row[] }
 
@@ -130,20 +122,63 @@ export const groups = (all: Row[], nowMs: number, offsetMin: number): Group[] =>
   return out
 }
 
-/** The band's one line, or undefined when nothing is overdue or due within the hour. */
-export const bandLine = (all: Row[], nowMs: number, offsetMin: number, width = 100): { lead: string; text: string; when: string; color: string } | undefined => {
-  const shown = groups(all, nowMs, offsetMin).flatMap(g => g.rows)
-  const overdue = shown.filter(r => statusOf(r, nowMs) === 'overdue')
-  const soon = shown.filter(r => statusOf(r, nowMs) === 'soon')
-  const pick = overdue[0] ?? soon[0]
-  if (!pick) return undefined
-  const more = overdue.length + soon.length - 1
-  const lead = overdue.length > 0 ? 'Overdue:' : 'Next:'
-  const when = `(${overdue.length > 0 ? `${span(nowMs - pick.atMs)} ago` : `in ${span(pick.atMs - nowMs)}`})${more > 0 ? ` +${more} more` : ''}`
-  const head = `${kindText(pick.kind)} ${hhmm(pick.atMs, offsetMin)}${pick.channel ? ` ${pick.channel}` : ''} `
-  const room = Math.max(12, width - lead.length - head.length - when.length - 6)
-  return { lead, text: `${head}"${cut(pick.title, room)}"`, when, color: overdue.length > 0 ? 'error' : 'warning' }
+/** The rows the reply shows, in the order it numbers them (1, 2, ...). */
+export const shownRows = (all: Row[], nowMs: number, offsetMin: number): Row[] =>
+  groups(all, nowMs, offsetMin).flatMap(g => g.rows)
+
+/**
+ * `/publishing`'s reply in the set's look: a dim line per day, then one numbered line per item (time,
+ * channel in its colour, kind, title, platforms, status by tone), and a footnote with the counts.
+ * `readMs` is when the file was last read; `note` leads the footnote (`marked 2 done`).
+ */
+export const scheduleReply = (all: Row[], nowMs: number, offsetMin: number, readMs: number, problem = '', note = ''): Reply => {
+  const gs = groups(all, nowMs, offsetMin).filter(g => g.rows.length > 0)
+  const items = gs.flatMap(g => g.rows)
+  const cells = items.map((r, i): Cell[] => [
+    [num(`${i + 1}.`)],
+    [{ text: hhmm(r.atMs, offsetMin) }],
+    [channelPiece(r)],
+    [{ text: kindText(r.kind) }],
+    [{ text: cut(r.title, TITLE_MAX), dim: statusOf(r, nowMs) === 'done' }],
+    [label(platformsText(r.platforms))],
+    [statusPiece(r, nowMs)],
+  ])
+  // the item lines share columns; the day lines sit between them, outside the columns
+  const lines = align(cells, [0])
+  const out: Piece[][] = []
+  let i = 0
+  for (const g of gs) {
+    out.push([label(g.label)])
+    for (let k = 0; k < g.rows.length; k += 1) out.push(lines[i++] ?? [])
+  }
+  const today = dayKey(nowMs, offsetMin)
+  const dueToday = items.filter(r => dayKey(r.atMs, offsetMin) === today && ['soon', 'later'].includes(statusOf(r, nowMs))).length
+  const overdue = items.filter(r => statusOf(r, nowMs) === 'overdue').length
+  const counts = [`${dueToday} due today`, ...(overdue > 0 ? [`${overdue} overdue`] : []), `updated ${hhmm(readMs || nowMs, offsetMin)}`]
+  return {
+    title: 'Publishing',
+    rows: out,
+    foot: [...(note ? [note] : []), ...(problem ? [] : counts)].join(' · ') || undefined,
+    empty: problem || 'Nothing to publish today or tomorrow.',
+  }
 }
+
+/** The band's rows: what is overdue or due within the hour, minus the lines closed with ✕. */
+export const bandRows = (all: Row[], nowMs: number, offsetMin: number, hidden: readonly string[] = []): Row[] =>
+  shownRows(all, nowMs, offsetMin).filter(r => {
+    const s = statusOf(r, nowMs)
+    return (s === 'overdue' || s === 'soon') && !hidden.includes(r.id)
+  })
+
+/** One band line per row, columns lined up: status first, then time, channel, kind and title. */
+export const bandPieces = (list: Row[], nowMs: number, offsetMin: number): Piece[][] =>
+  align(list.map(r => [
+    [statusPiece(r, nowMs)],
+    [{ text: hhmm(r.atMs, offsetMin) }],
+    [channelPiece(r)],
+    [{ text: kindText(r.kind) }],
+    [{ text: cut(r.title, TITLE_MAX) }],
+  ]))
 
 const homeOf = async ($: EngineInterface) =>
   $.process.run(['printenv', 'HOME']).then(r => r.stdout.trim()).catch(() => '')
@@ -168,7 +203,7 @@ const poll = async ($: EngineInterface, file: string) => {
 }
 
 /** Set `done: true` on the entry `id` names, in the file as it is now, and read it again. */
-export const markDone = async ($: EngineInterface, file: string, id: string) => {
+export const markDone = async ($: EngineInterface, file: string, id: string): Promise<boolean> => {
   const text = await $.fs.read(file).then(t => (typeof t === 'string' ? t : ''))
   const data: unknown = JSON.parse(text)
   let changed = false
@@ -181,84 +216,83 @@ export const markDone = async ($: EngineInterface, file: string, id: string) => 
   }
   if (changed) await $.fs.write(file, `${JSON.stringify(data, null, 2)}\n`)
   await poll($, file)
+  return changed
+}
+
+/**
+ * What a session of the module holds: the schedule file, and the ids of the rows the last reply
+ * numbered, so `/publishing done 2` means the row shown as 2.
+ */
+type Ctx = { file: string; numbered: string[] }
+
+/** The reply as text, remembered so the `CommandOutput` hook can draw it as the box. */
+async function answer($: EngineInterface, ctx: Ctx, note = '') {
+  const all = await read($, rows)
+  const offsetMin = await read($, offsetAtom)
+  const nowMs = await $.clock.now()
+  ctx.numbered = shownRows(all, nowMs, offsetMin).map(r => r.id)
+  return { text: remember(scheduleReply(all, nowMs, offsetMin, await read($, nowAtom), await read($, problemAtom), note)) }
+}
+
+/** `/publishing done <n>`: marks the row numbered n in the last reply done, then answers the reply again. */
+async function markRow($: EngineInterface, ctx: Ctx, n: number) {
+  // numbered as the last reply showed them; with no reply yet this session, as one would now
+  if (ctx.numbered.length === 0) ctx.numbered = shownRows(await read($, rows), await $.clock.now(), await read($, offsetAtom)).map(r => r.id)
+  const id = ctx.numbered[n - 1]
+  if (!id || !ctx.file) return { text: `publishing: no row ${n}. Rows run 1 to ${ctx.numbered.length}; /publishing lists them.` }
+  const changed = await markDone($, ctx.file, id).catch(() => false)
+  if (!changed) return { text: `publishing: could not mark row ${n} done in ${ctx.file}.` }
+  return answer($, ctx, `marked ${n} done`)
 }
 
 export const register: Register = (on, options) => {
-  let file = ''
+  const ctx: Ctx = { file: '', numbered: [] }
   const bandOn = options.band !== 'off'
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    await $.command.register({ name: 'publishing', description: "Show today's and tomorrow's films and Shorts to publish" })
+    await $.command.register({ name: 'publishing', description: "Today's and tomorrow's films and Shorts to publish; /publishing done <n> marks row n done" })
     // the module has no time zone or home folder of its own: ask the computer once
     const z = await $.process.run(['date', '+%z']).then(r => r.stdout.trim()).catch(() => '')
-    const m = /^([+-])(\d\d)(\d\d)/.exec(z)
-    if (m) await update($, offsetAtom, () => (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])))
+    if (/^[+-]\d{4}/.test(z)) await update($, offsetAtom, () => parseOffset(z))
     const configured = typeof options.scheduleFile === 'string' ? options.scheduleFile.trim() : ''
     const home = await homeOf($)
-    file = (configured || '~/.claude-mods/schedule.json').replace(/^~(?=\/|$)/, home)
-    await poll($, file)
-    $.clock.every(POLL_MS, () => poll($, file))
+    ctx.file = (configured || '~/.claude-mods/schedule.json').replace(/^~(?=\/|$)/, home)
+    await poll($, ctx.file)
+    $.clock.every(POLL_MS, () => poll($, ctx.file))
     return result
   })
 
-  on('command.run', { command: 'publishing' }, async $ => {
-    if (file) await poll($, file)
-    await $.ui.open({ id: PANE, title: PANE_TITLE })
-    return { text: 'Publishing pane opened.' }
+  on('command.run', { command: 'publishing' }, async ($, e) => {
+    if (ctx.file) await poll($, ctx.file)
+    const args = (e.args ?? '').trim()
+    const done = /^done\s+(\d+)$/i.exec(args)
+    if (done) return markRow($, ctx, Number(done[1]))
+    if (args) return { text: 'publishing: /publishing lists the schedule; /publishing done <n> marks row n done.' }
+    // the command also brings back band lines closed with ✕
+    await update($, hiddenAtom, () => [])
+    return answer($, ctx)
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const all = await read($, rows)
-    const problem = await read($, problemAtom)
-    const offsetMin = await read($, offsetAtom)
-    const nowMs = await $.clock.now()
-    const gs = groups(all, nowMs, offsetMin)
-    const shown = gs.flatMap(g => g.rows)
-    const chW = Math.max(0, ...shown.map(r => r.channel.length))
-    const titleW = Math.max(20, (e.props.bodyColumns ?? 80) - chW - 40)
-
-    return (
-      <Box flexDirection="column">
-        {problem ? <Text color="error">{problem}</Text> : null}
-        {!problem && shown.length === 0 ? <Text dimColor>Nothing to publish today or tomorrow.</Text> : null}
-        {gs.filter(g => g.rows.length > 0).map(g => (
-          <Box key={g.key} flexDirection="column" marginTop={1}>
-            <Text bold>{g.label}</Text>
-            {g.rows.map(r => {
-              const s = statusOf(r, nowMs)
-              return (
-                <Box key={r.id} flexDirection="row" flexWrap="wrap" columnGap={1}>
-                  <Text mono>{hhmm(r.atMs, offsetMin)}</Text>
-                  <Text mono color={channelColor(r.channel)}>{r.channel.padEnd(chW)}</Text>
-                  <Text mono>{kindText(r.kind).padEnd(5)}</Text>
-                  <Text dimColor={s === 'done'}>{cut(r.title, titleW)}</Text>
-                  {r.platforms && r.platforms.length > 0 ? <Text mono color="subtle">{platformsText(r.platforms)}</Text> : null}
-                  <Text mono color={STATUS_COLOR[s]} bold={s === 'overdue'}>{statusText(r, nowMs)}</Text>
-                  {s !== 'done' && file ? (
-                    <Button key={`done:${r.id}`} label="Done" dimColor onPress={() => markDone($, file, r.id)} />
-                  ) : null}
-                </Box>
-              )
-            })}
-          </Box>
-        ))}
-      </Box>
-    )
+  // the reply in the chat, drawn in the set's look (see STYLE/STYLE.md)
+  on('ui.render', { component: 'CommandOutput', props: { command: 'publishing' } }, async ($, e, next) => {
+    const reply = e.props.isErrored ? undefined : recall(e.props.text)
+    return reply ? replyBox($.ui.resolve(e), reply) : next(e)
   })
 
+  // above the prompt: one line per item overdue or due within the hour, each with a ✕
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!bandOn || e.props.hasSurvey) return next(e)
-    const line = bandLine(await read($, rows), await $.clock.now(), await read($, offsetAtom), e.props.bodyColumns)
-    if (!line) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
+    const nowMs = await $.clock.now()
+    const offsetMin = await read($, offsetAtom)
+    const list = bandRows(await read($, rows), nowMs, offsetMin, await read($, hiddenAtom))
+    if (list.length === 0) return next(e)
+    const ui = $.ui.resolve(e)
+    const lines = bandPieces(list, nowMs, offsetMin)
     return (
-      <Box key="publish-next" flexDirection="row" columnGap={1}>
-        <Text mono bold color={line.color}>{line.lead}</Text>
-        <Text>{line.text}</Text>
-        <Text mono color={line.color}>{line.when}</Text>
-      </Box>
+      <ui.Box key="publish-band" flexDirection="column">
+        {list.map((r, i) => bandLine(ui, r.id, lines[i] ?? [], () => update($, hiddenAtom, h => [...h, r.id])))}
+      </ui.Box>
     )
   })
 }

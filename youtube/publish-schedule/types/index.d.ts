@@ -5,18 +5,20 @@ export type ScheduleItem = {
   channel: string
   kind: 'film' | 'short'
   title: string
-  /** Set by the Done button, or by hand. */
+  /** Set by `/publishing done <n>`, or by hand. */
   done?: boolean
   /** Already scheduled on the platforms: counts as done once its time has passed. */
   scheduled?: boolean
   platforms?: string[]
+  /** The channel's colour, a theme key such as `suggestion`; left out, the name picks a steady one. */
+  color?: string
 }
 
 export type Status = 'done' | 'overdue' | 'soon' | 'later'
 
 /** A schedule entry with its time worked out. */
 export type Row = ScheduleItem & {
-  /** `at|channel|title`: stable across re-reads, the Done button's address. */
+  /** `at|channel|title`: stable across re-reads, what `/publishing done <n>` marks. */
   id: string
   /** Epoch milliseconds. */
   atMs: number
@@ -32,6 +34,8 @@ declare module 'claude-code' {
       offsetMin: number
       /** Why the file could not be read, or '' when it was. */
       problem: string
+      /** Band lines closed with ✕ this session, by row id; `/publishing` clears it. */
+      hidden: string[]
     }
   }
 }

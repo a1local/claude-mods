@@ -7,7 +7,7 @@ export type RenderRow = {
   color?: string
   /** The `title=` line, or the registry file's name. */
   title: string
-  kind: 'remotion' | 'lambda' | 'command'
+  kind: 'remotion' | 'lambda' | 'command' | 'detected'
   stage: 'bundling' | 'uploading' | 'rendering' | 'joining' | 'done' | 'failed' | 'stalled'
   /** 0..1, or null when not measurable (Lambda, bundling). */
   fraction: number | null

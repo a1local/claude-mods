@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { compact, parseChannels, statsTable } from '../hooks/register'
+import { compact, parseChannels, statsReply } from '../hooks/register'
 
 const HOME = '/home/demo'
 const FILE = `${HOME}/.claude-mods/channel-stats.json`
@@ -77,14 +77,11 @@ test('the status line and /channel-stats show the numbers the API answers', OPTI
   ])
   expect(requests.every(r => r.key === 'test-key-not-real' && !r.url.includes('key='))).toBe(true)
   // change since the last earlier day kept (2027-01-14); a channel with no earlier numbers shows none
-  expect(out.text?.split('\n').slice(0, 5).join('\n')).toBe([
-    '```',
-    'Channel            Subs  to 1k            Views  Videos',
-    'Demo Animals  412 (+12)    588  18,234 (+1,234)  9 (+1)',
-    'Demo Space           38    962              950       2',
-    '```',
-  ].join('\n'))
-  expect(out.text).toContain('Changes since 2027-01-14.')
+  const lines = out.text?.split('\n') ?? []
+  expect(lines[0]).toBe('YouTube channels')
+  expect(lines[1]).toBe('Demo Animals  412 subs +12  [####41%-----]  588 to go  18,234 views +1,234  9 videos')
+  expect(lines[2]).toBe('Demo Space     38 subs      [----3.8%----]  962 to go     950 views         2 videos')
+  expect(out.text).toContain('changes since 2027-01-14')
 })
 
 test('a key in ~/.claude-mods/youtube-api-key is used when no key is set', async ($, on) => {
@@ -165,9 +162,10 @@ test('the reply draws in the chat as styled rows: name, subs, a bar to 1k, views
       plugin: 'channel-stats', surface, component: 'CommandOutput',
       props: { command: 'channel-stats', args: '', text: out.text ?? '', isErrored: false },
     })
-    // 412 of 1,000 is 41% (padded to line up with the other channel's 0.1%): 4 of 10 cells; one line, two spaces between columns; +12 subs and +1,234 views since yesterday, in green
+    // the shared look: one line per channel, columns lined up, the percent inside the bar;
+    // +12 subs and +1,234 views since yesterday, in green
     expect((await ui.find({ type: 'Box', key: 'row-0' }))?.text)
-      .toBe('Demo Animals  412 subs +12  [####------]  41%  588 to go  18,234 views +1,234  9 videos')
+      .toBe('Demo Animals  412 subs +12  [####41%-----]  588 to go  18,234 views +1,234  9 videos')
     expect((await ui.find({ type: 'Text', text: ' +12' }))?.props.color).toBe('success')
     expect((await ui.find({ type: 'Text', text: /^Demo Animals/ }))?.props.mono).toBe(true)
     expect((await ui.find({ type: 'Box', key: 'foot' }))?.text).toContain('changes since 2027-01-14')
@@ -218,14 +216,14 @@ test('an HTTP error keeps the last good numbers', OPTIONS, async ($, on) => {
 })
 
 test('channels file, number format and an empty history', () => {
-  expect(parseChannels('[{"id":"UCabc"},{"handle":"name","label":"Mine"},{"x":1}]')).toEqual([
-    { id: 'UCabc', label: undefined },
-    { handle: '@name', label: 'Mine' },
+  expect(parseChannels('[{"id":"UCabc"},{"handle":"name","label":"Mine","color":"success"},{"x":1}]')).toEqual([
+    { id: 'UCabc', label: undefined, color: undefined },
+    { handle: '@name', label: 'Mine', color: 'success' },
   ])
   expect(parseChannels('not json')).toEqual([])
   expect(compact(999)).toBe('999')
   expect(compact(1000)).toBe('1k')
   expect(compact(18234)).toBe('18.2k')
   expect(compact(2_450_000)).toBe('2.5M')
-  expect(statsTable([{ handle: '@x' }], {}, {}, '2027-01-15', 0, '')).toContain('No earlier day kept yet')
+  expect(statsReply([{ handle: '@x' }], {}, {}, '2027-01-15', 0, '').foot).toContain('daily changes start tomorrow')
 })

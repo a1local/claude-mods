@@ -1,6 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import { align, cut, label, num, recall, remember, replyBox, title } from './look'
+import type { Reply, Row } from './look'
 import type { Rule } from '../types'
 
 // Your rules live in one JSON file outside any repo (default ~/.claude-mods/command-guard.json).
@@ -117,12 +119,42 @@ const judge = async ($: EngineInterface, tool: Tool, texts: readonly (string | u
   if (!hit) return undefined
   const name = hit.name
   await update($, fired, m => ({ ...m, [name]: (m[name] ?? 0) + 1 })).catch(() => undefined)
-  if (showToasts) $.ui.toast(`command-guard refused a ${tool} call: ${name}`)
+  if (showToasts) $.ui.toast(`Guard: refused ${tool} (${name})`)
   return `Refused by the command-guard rule "${name}": ${hit.reason}`
 }
 
 /** A guard that throws or runs out of time lets the call through (fail open) and says so once. */
 const failOpen = ($: EngineInterface) => reportOnce($, 'a check failed, so calls are let through')
+
+/** The rules file as the reply names it: the home folder written `~`. */
+const shownPath = () => (home && configured.startsWith(`${home}/`) ? `~${configured.slice(home.length)}` : configured)
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/**
+ * The `/guard` reply: per rule its name, tool, refusals this session (warn tone when above 0) and its
+ * reason cut short; a footnote with the totals and the rules file, or what is wrong with it.
+ */
+export const guardReply = (loaded: Loaded | { error: string }, counts: Record<string, number>, path: string): Reply => {
+  const total = Object.values(counts).reduce((a, n) => a + n, 0)
+  const refusals = `${plural(total, 'refusal')} this session`
+  let foot: string
+  let rows: Row[] = []
+  let bad = true
+  if ('error' in loaded) foot = `could not read the rules file ${path} (${loaded.error}), so calls are let through · ${refusals}`
+  else if (loaded.isMissing) foot = `no rules file at ${path}, so nothing is checked · see the README for the format`
+  else {
+    rows = loaded.rules.map(r => {
+      const n = counts[r.name] ?? 0
+      return [[title(r.name)], [label(r.tool)], [n > 0 ? num(`${n}×`, 'warn') : label(`${n}×`)], [label(cut(r.reason, 60))]]
+    })
+    bad = loaded.problems.length > 0
+    foot = [plural(loaded.rules.length, 'rule'), refusals, `rules file ${path}`, ...loaded.problems].join(' · ')
+  }
+  // the count column is right-aligned, so 2× and 12× line up
+  // a missing or broken rules file shows its footnote in the bad tone
+  return { title: 'Command guard', rows: align(rows, [2]), foot, footTone: bad ? 'bad' : undefined, empty: 'No rules in the file.' }
+}
 
 export const register: Register = (on, options) => {
   configured = typeof options.rulesFile === 'string' && options.rulesFile.trim() ? options.rulesFile.trim() : DEFAULT_FILE
@@ -163,23 +195,19 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'guard' }, async $ => {
-    let loaded: Loaded
+    let loaded: Loaded | { error: string }
     try {
       loaded = await load($)
     } catch (err) {
-      return { text: `command-guard: could not read ${configured} (${message(err)}). Calls are let through.` }
-    }
-    if (loaded.isMissing) {
-      return { text: `command-guard: no rules file at ${configured}, so nothing is checked. See the mod's README for the format.` }
+      loaded = { error: message(err) }
     }
     const counts = await read($, fired).catch(() => ({}) as Record<string, number>)
-    const lines = [`command-guard: ${loaded.rules.length} active rule${loaded.rules.length === 1 ? '' : 's'} from ${configured}`]
-    for (const r of loaded.rules) {
-      const n = counts[r.name] ?? 0
-      lines.push(`  ${r.name} (${r.tool}): refused ${n} time${n === 1 ? '' : 's'} this session`)
-      lines.push(`    /${r.pattern}/${r.flags ?? ''}`)
-    }
-    for (const p of loaded.problems) lines.push(`  problem: ${p}`)
-    return { text: lines.join('\n') }
+    return { text: remember(guardReply(loaded, counts, shownPath())) }
+  })
+
+  // the reply in the chat, drawn in the set's look (see STYLE/STYLE.md)
+  on('ui.render', { component: 'CommandOutput', props: { command: 'guard' } }, async ($, e, next) => {
+    const reply = e.props.isErrored ? undefined : recall(e.props.text)
+    return reply ? replyBox($.ui.resolve(e), reply) : next(e)
   })
 }

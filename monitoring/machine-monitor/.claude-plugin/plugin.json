@@ -1,7 +1,7 @@
 {
   "name": "machine-monitor",
-  "version": "0.1.0",
-  "description": "A status line with CPU load, GPU use, swap and free disk; refuses heavy Bash jobs (renders, ffmpeg, Blender) while the machine is overloaded; warns when disk runs low or temp folders grow.",
+  "version": "0.2.0",
+  "description": "A status line with CPU load, GPU use, swap and free disk, and a /machine command showing each against its limit; refuses heavy Bash jobs (renders, ffmpeg, Blender) while the machine is overloaded; warns when disk runs low or temp folders grow.",
   "author": {
     "name": "A1 Local"
   },

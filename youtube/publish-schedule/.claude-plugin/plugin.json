@@ -1,7 +1,7 @@
 {
   "name": "publish-schedule",
   "version": "0.1.0",
-  "description": "A Publishing pane listing today's and tomorrow's films and Shorts from a schedule file, with done, due-soon and overdue marks, a Done button per item, and a one-line reminder above the prompt when something is due within the hour.",
+  "description": "/publishing answers in the chat with today's and tomorrow's films and Shorts from a schedule file, with done, due-soon and overdue marks; /publishing done <n> marks an item done; items due within the hour or overdue show above the prompt, one line each.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "A1 Local"
@@ -17,7 +17,7 @@
     "band": {
       "type": "string",
       "title": "Reminder above the prompt",
-      "description": "Show a one-line reminder above the prompt when something is due within the hour or overdue.",
+      "description": "Show a line above the prompt for each item due within the hour or overdue.",
       "options": ["on", "off"],
       "default": "on"
     }
