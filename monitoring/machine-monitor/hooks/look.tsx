@@ -149,9 +149,9 @@ export const remember = (reply: Reply): string => {
 }
 export const recall = (text: string): Reply | undefined => replies.get(text.replace(/^[\w-]+:\s*/, '')) ?? replies.get(text)
 
-/** One line of a band above the prompt: the text on the left, a ✕ at the right end (a little padding after it) that calls `onClose`. */
+/** One line of a band above the prompt: the text on the left, a ✕ at the right end (the band's own padding after it) that calls `onClose`. */
 export const bandLine = (ui: UI, id: string, pieces: Piece[], onClose: () => void) => (
-  <ui.Box key={id} flexDirection="row" flexWrap="nowrap" justifyContent="space-between" alignItems="center" width="100%" paddingRight={1}>
+  <ui.Box key={id} flexDirection="row" flexWrap="nowrap" justifyContent="space-between" alignItems="center" width="100%">
     {line(ui, pieces)}
     <ui.Button key={`close-${id}`} label="✕" onPress={onClose} />
   </ui.Box>
