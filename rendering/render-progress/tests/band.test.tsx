@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { alertFor, barPieces, channelColor, short } from '../hooks/register'
+import { alertFor, barPieces, channelColor, commandRow, short } from '../hooks/register'
 
 const HOME = '/home/demo'
 const REG = `${HOME}/.render-progress`
@@ -138,4 +138,21 @@ test('alerts: done and failed only after a change, stalled whenever it starts', 
   expect(alertFor(row('done'), undefined)).toBe(undefined)
   expect(alertFor(row('done'), 'done')).toBe(undefined)
   expect(alertFor(row('rendering'), 'bundling')).toBe(undefined)
+})
+
+test('a command render with every frame is done, and leaves 2 hours after it finished', () => {
+  const base = { id: 'film', title: 'A Film', channel: '' }
+  const now = 1_800_000_000
+  const all = { total: 100, done: 100, running: false, started: now - 3600, finished: now - 600 }
+  const row = commandRow(base, all, [], now)
+  expect(row?.stage).toBe('done')
+  expect(row?.fraction).toBe(1)
+  // started to finished: 50 minutes
+  expect(row?.elapsedSec).toBe(3000)
+  // finished more than 2 hours ago: gone, so a new session does not show an old render
+  expect(commandRow(base, { ...all, finished: now - 3 * 3600 }, [], now)).toBe(undefined)
+  // not all frames and nothing running: nothing to show
+  expect(commandRow(base, { ...all, done: 50 }, [], now)).toBe(undefined)
+  // not all frames and running: rendering
+  expect(commandRow(base, { ...all, done: 50, running: true }, [], now)?.stage).toBe('rendering')
 })

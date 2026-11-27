@@ -108,22 +108,34 @@ const workDirRow = async ($: EngineInterface, base: Base, reg: Record<string, st
 
 /**
  * `kind=command`: `cmd` (run with `sh -c` in `cwd`) prints one line of JSON,
- * `{"total": n, "done": n, "running": bool, "started": epochSeconds?, "pids": [n]?}`.
+ * `{"total": n, "done": n, "running": bool, "started": epochSeconds?, "finished": epochSeconds?, "pids": [n]?}`.
  * Shown while `running`; the time left comes from how fast `done` rose over the last 10 minutes.
  */
-type CommandData = { total: number; done: number; running: boolean; started?: number | null; pids?: number[] }
+type CommandData = { total: number; done: number; running: boolean; started?: number | null; finished?: number | null; pids?: number[] }
 type Sample = { atSec: number; done: number }
-const commandCache = new Map<string, { at: number; data: CommandData | undefined; samples: Sample[] }>()
+const commandCache = new Map<string, { at: number; data: CommandData | undefined; samples: Sample[]; doneAt?: number }>()
 
-export const commandRow = (base: Base, data: CommandData, samples: Sample[], nowSec: number): RenderRow | undefined => {
-  if (!data.running || data.total <= 0) return undefined
+export const commandRow = (base: Base, data: CommandData, samples: Sample[], nowSec: number, doneAtSec?: number): RenderRow | undefined => {
+  if (data.total <= 0) return undefined
+  const elapsedSec = (until: number) => (data.started ? Math.max(0, until - data.started) : 0)
+  // every frame there: done, shown green until KEEP_DONE_SEC after it was first seen complete
+  if (data.done >= data.total) {
+    // when it finished: the command's own `finished` (say, the newest frame's time), else when first seen complete
+    const at = data.finished ?? doneAtSec ?? nowSec
+    if (nowSec - at > KEEP_DONE_SEC) return undefined
+    return {
+      ...base, kind: 'command', stage: 'done', fraction: 1, framesDone: data.total, framesTotal: data.total,
+      elapsedSec: elapsedSec(at), leftSec: null,
+    }
+  }
+  if (!data.running) return undefined
   const first = samples[0]
   const last = samples[samples.length - 1]
   const perSec = first && last && last.atSec > first.atSec ? (last.done - first.done) / (last.atSec - first.atSec) : 0
   return {
     ...base, kind: 'command', stage: 'rendering',
     fraction: Math.min(1, data.done / data.total), framesDone: data.done, framesTotal: data.total,
-    elapsedSec: data.started ? Math.max(0, nowSec - data.started) : 0,
+    elapsedSec: elapsedSec(nowSec),
     leftSec: perSec > 0 ? (data.total - data.done) / perSec : null,
   }
 }
@@ -137,6 +149,8 @@ const runCommand = async ($: EngineInterface, id: string, reg: Record<string, st
     cached.data = data
     if (data) {
       const atSec = nowMs / 1000
+      // when the render was first seen complete; cleared if frames go missing again (a re-render)
+      cached.doneAt = data.total > 0 && data.done >= data.total ? cached.doneAt ?? atSec : undefined
       cached.samples = [...cached.samples, { atSec, done: data.done }].filter(s => atSec - s.atSec <= 600)
     }
     cached.at = nowMs
@@ -206,7 +220,7 @@ const poll = async ($: EngineInterface, dir: string, alerts = true) => {
     let pids = pidsIn(reg.pid)
     if (reg.kind === 'command') {
       const c = await runCommand($, entry.name, reg, nowMs).catch(() => undefined)
-      row = c?.data ? commandRow(base, c.data, c.samples, nowSec) : undefined
+      row = c?.data ? commandRow(base, c.data, c.samples, nowSec, c.doneAt) : undefined
       pids = [...pids, ...(c?.data?.pids ?? [])]
     } else {
       row = await workDirRow($, base, reg, nowSec).catch(() => undefined)
@@ -266,7 +280,7 @@ export const cells = (r: RenderRow, nowMs: number, offsetMin: number, cpus = 0) 
   const fraction = isDone ? 1 : r.fraction ?? null
   const time = clock(r.elapsedSec ?? 0)
   // the finish time alone while running (`ETA:21:25`); once over, the time it took
-  const when = isDone ? `done ${time}`
+  const when = isDone ? (r.elapsedSec > 0 ? `done ${time}` : 'done')
     : r.stage === 'failed' ? `FAILED ${time}`
     : r.stage === 'stalled' ? 'stalled'
     : `ETA:${typeof r.leftSec === 'number' ? finishAt(nowMs, r.leftSec, offsetMin) : '--:--'}`

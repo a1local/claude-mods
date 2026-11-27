@@ -66,10 +66,10 @@ printf 'kind=remotion\ntitle=%s\nchannel=%s\nwork=%s\nframes=%s\nstart=%s\npid=%
 
 | Line | Meaning |
 | --- | --- |
-| `cmd=` | A command (run with `sh -c`) that prints one line of JSON: `{"total": n, "done": n, "running": true, "started": unixSeconds, "pids": [n]}`. `started` and `pids` are optional |
+| `cmd=` | A command (run with `sh -c`) that prints one line of JSON: `{"total": n, "done": n, "running": true, "started": unixSeconds, "finished": unixSeconds, "pids": [n]}`. `started`, `finished` and `pids` are optional |
 | `cwd=` | Folder to run it in |
 
-It runs at most every 15 seconds. The row shows while `running` is true, and the finish time comes from how fast `done` rose over the last 10 minutes. A Blender example that counts saved frames:
+It runs at most every 15 seconds. The row shows while `running` is true, and the finish time comes from how fast `done` rose over the last 10 minutes. Once `done` reaches `total` the row turns green as `done` (with an alert) and leaves 2 hours after `finished`, or after it was first seen complete if the command gives no `finished`. A Blender example that counts saved frames:
 
 ```
 kind=command
