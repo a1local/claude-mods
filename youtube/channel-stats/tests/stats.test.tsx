@@ -153,24 +153,26 @@ test('a key file saved after the session started is picked up by /channel-stats'
   expect(statuses[statuses.length - 1]).toContain('Demo Animals 412/1k subs')
 })
 
-test('/channel-stats opens a panel with the table in monospace', OPTIONS, async ($, on) => {
-  engine(on)
+test('the reply draws in the chat as styled rows: name, subs, a bar to 1k, views, videos', OPTIONS, async ($, on) => {
+  engine(on, { daily: { '2027-01-14': { 'id:UC0000000000000000000001': { subs: 400, views: 17000, videos: 8 } } } })
   on('http.fetch', (_, e) => answer(e.url.includes('forHandle=') ? [SPACE] : [ANIMALS]))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.invalidate', () => ({ value: undefined }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const out = await $.command.run(RUN)
-  expect(out.text).toBe('Channel stats opened.')
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({
-      plugin: 'channel-stats', surface, component: 'Pane', requestId: 'channel-stats',
-      props: { title: 'Channel stats', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+      plugin: 'channel-stats', surface, component: 'CommandOutput',
+      props: { command: 'channel-stats', args: '', text: out.text ?? '', isErrored: false },
     })
-    const row = await ui.find({ type: 'Box', key: 'row-0' })
-    expect(row?.text).toBe('Demo Animals   412    588  18,234       9')
-    expect((await ui.find({ type: 'Text', text: /^Channel/ }))?.props.mono).toBe(true)
+    // 412 of 1,000 is 41% (padded to line up with the other channel's 0.1%): 7 of 16 cells; +12 subs and +1,234 views since yesterday, in green
+    expect((await ui.find({ type: 'Box', key: 'row-0' }))?.text)
+      .toBe('Demo Animals412 subs +12[#######---------]  41%  588 to go18,234 views +1,2349 videos')
+    expect((await ui.find({ type: 'Text', text: ' +12' }))?.props.color).toBe('success')
+    expect((await ui.find({ type: 'Text', text: /^Demo Animals/ }))?.props.mono).toBe(true)
+    expect((await ui.find({ type: 'Box', key: 'foot' }))?.text).toContain('changes since 2027-01-14')
+    // no Markdown fence is drawn
+    expect((await ui.findAll({ type: 'Text', text: /```/ })).length).toBe(0)
     await ui.unmount()
   }
 })

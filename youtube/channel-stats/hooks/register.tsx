@@ -214,26 +214,80 @@ async function refresh($: EngineInterface, ctx: Ctx) {
   return ctx.inFlight
 }
 
-const PANE = 'channel-stats'
+/** One coloured piece of a drawn row; `color` is a theme key, so it follows light and dark themes. */
+export type Piece = { text: string; color?: string; bold?: boolean; dim?: boolean }
 
-/** `/channel-stats`: fetches if a key is found, then opens the Channel stats panel. */
+const PALETTE = ['success', 'suggestion', 'claude', 'merged', 'warning', 'autoAccept']
+
+/**
+ * The reply as drawn rows: per channel its name, subscribers with the day's change, a `[###----]` bar
+ * to 1,000 with the percent and how many to go, views and videos, each column padded to line up;
+ * and one dim line saying when the numbers are from.
+ */
+export const statsView = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): { rows: Piece[][][]; foot: string } => {
+  const before = Object.keys(daily).filter(d => d < today).sort().pop()
+  const prev = before ? daily[before] ?? {} : {}
+  const BAR = 16
+  const cells = refs.map((r, i) => {
+    const s = last[refKey(r)]
+    const p = prev[refKey(r)]
+    const change = (now: number | null | undefined, then: number | null | undefined) =>
+      now == null || then == null || now === then ? '' : signed(now - then)
+    const subs = s?.subs ?? null
+    const frac = subs === null ? null : Math.min(1, subs / SUB_GOAL)
+    return {
+      color: PALETTE[i % PALETTE.length] ?? 'text',
+      name: nameOf(r, s),
+      subs: subs === null ? (s ? 'hidden' : '–') : full(subs),
+      subsWord: subs === 1 ? 'sub ' : 'subs',
+      subsChange: change(subs, p?.subs),
+      filled: frac === null ? 0 : Math.round(frac * BAR),
+      percent: frac === null ? '' : `${frac < 0.1 && frac > 0 ? (frac * 100).toFixed(1) : Math.floor(frac * 100)}%`,
+      toGo: subs === null ? '' : subs >= SUB_GOAL ? 'reached!' : `${full(SUB_GOAL - subs)} to go`,
+      views: s ? full(s.views) : '–',
+      viewsChange: change(s?.views, p?.views),
+      videos: s ? full(s.videos) : '–',
+    }
+  })
+  const w = (pick: (c: (typeof cells)[number]) => string) => Math.max(...cells.map(c => pick(c).length))
+  const W = { name: w(c => c.name), subs: w(c => c.subs), percent: w(c => c.percent), toGo: w(c => c.toGo), views: w(c => c.views), videos: w(c => c.videos) }
+  const rows = cells.map(c => {
+    const delta = (d: string): Piece[] => (d ? [{ text: ` ${d}`, color: d.startsWith('-') ? 'error' : 'success' }] : [])
+    return [
+      [{ text: c.name.padEnd(W.name), color: c.color, bold: true }],
+      [{ text: c.subs.padStart(W.subs), bold: true }, { text: ` ${c.subsWord}`, dim: true }, ...delta(c.subsChange)],
+      [
+        { text: '[', dim: true },
+        { text: '#'.repeat(c.filled), color: 'claude' },
+        { text: '-'.repeat(BAR - c.filled), color: 'inactive' },
+        { text: ']', dim: true },
+        { text: ` ${c.percent.padStart(W.percent)}`, bold: true },
+        { text: `  ${c.toGo.padEnd(W.toGo)}`, dim: true },
+      ],
+      [{ text: c.views.padStart(W.views) }, { text: ' views', dim: true }, ...delta(c.viewsChange)],
+      [{ text: c.videos.padStart(W.videos) }, { text: ' videos', dim: true }],
+    ]
+  })
+  const ats = refs.map(r => last[refKey(r)]?.at).filter((n): n is number => typeof n === 'number')
+  const at = ats.length > 0 ? Math.min(...ats) : undefined
+  const time = at === undefined ? 'not fetched yet' : `updated ${new Date(at + offsetMin * 60000).toISOString().slice(11, 16)}`
+  const foot = [
+    time,
+    before ? `changes since ${before}` : 'daily changes start tomorrow',
+    'watch hours need YouTube Analytics (not connected)',
+    ...(note ? [note] : []),
+  ].join(' · ')
+  return { rows, foot }
+}
+
+/** `/channel-stats`: fetches if a key is found, then answers the table; the mod draws it as a boxed table. */
 async function showStats($: EngineInterface, ctx: Ctx) {
   if (!(await ensureKey($, ctx))) {
     return { text: `${HINT}: see the channel-stats README (Google Cloud console, YouTube Data API v3, API key), then save it in ${ctx.keyFile || KEY_FILE} or the mod's settings.` }
   }
   await refresh($, ctx)
   if (ctx.refs.length === 0) return { text: `channel-stats: no channels listed. Add them to ${ctx.configured || DEFAULT_FILE} (see the README).` }
-  const opened = await $.ui.open({ id: PANE, title: 'Channel stats' }).catch(() => undefined)
-  if (opened?.isPlaced) return { text: 'Channel stats opened.', isTextDisplayOnly: true as const }
-  // a surface that cannot show the panel gets the table as text
   return { text: await tableText($, ctx) }
-}
-
-async function tableData($: EngineInterface, ctx: Ctx) {
-  const last = ((await $.store.get('last')) ?? {}) as Last
-  const daily = ((await $.store.get('daily')) ?? {}) as Daily
-  const now = await $.clock.now()
-  return statsParts(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note)
 }
 
 async function tableText($: EngineInterface, ctx: Ctx) {
@@ -300,22 +354,30 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'channel-stats' }, $ => showStats($, ctx))
 
-  // the panel: the table in a monospace font, so its columns line up, and the notes under it
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  // the reply in the chat: one row per channel (name, subscribers, a bar to 1,000, views, videos) in a
+  // rounded box, columns lined up in a monospace font, and a dim line saying when the numbers are from
+  on('ui.render', { component: 'CommandOutput', props: { command: 'channel-stats' } }, async ($, e, next) => {
+    if (e.props.isErrored || !e.props.text.includes('```') || ctx.refs.length === 0) return next(e)
+    const last = ((await $.store.get('last')) ?? {}) as Last
+    const daily = ((await $.store.get('daily')) ?? {}) as Daily
+    const now = await $.clock.now()
+    const view = statsView(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note)
     const { Box, Text } = $.ui.resolve(e)
-    if (!ctx.apiKey) return <Text>{HINT}</Text>
-    const t = await tableData($, ctx)
     return (
-      <Box flexDirection="column" gap={1}>
-        <Box flexDirection="column">
-          <Box><Text mono bold>{t.head}</Text></Box>
-          {t.rows.map((row, i) => (
-            <Box key={`row-${i}`}><Text mono>{row}</Text></Box>
-          ))}
-        </Box>
-        {t.notes.map((n, i) => (
-          <Box key={`note-${i}`}><Text dimColor>{n}</Text></Box>
+      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
+        <Box><Text bold>YouTube channels</Text></Box>
+        {view.rows.map((row, i) => (
+          <Box key={`row-${i}`} flexDirection="row" flexWrap="wrap" columnGap={3}>
+            {row.map(cell => (
+              <Box flexDirection="row">
+                {cell.map(piece => (
+                  <Text mono color={piece.color} bold={piece.bold} dimColor={piece.dim}>{piece.text}</Text>
+                ))}
+              </Box>
+            ))}
+          </Box>
         ))}
+        <Box key="foot"><Text dimColor size="footnote">{view.foot}</Text></Box>
       </Box>
     )
   })
