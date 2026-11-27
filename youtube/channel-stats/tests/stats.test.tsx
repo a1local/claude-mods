@@ -153,6 +153,28 @@ test('a key file saved after the session started is picked up by /channel-stats'
   expect(statuses[statuses.length - 1]).toContain('Demo Animals 412/1k subs')
 })
 
+test('/channel-stats opens a panel with the table in monospace', OPTIONS, async ($, on) => {
+  engine(on)
+  on('http.fetch', (_, e) => answer(e.url.includes('forHandle=') ? [SPACE] : [ANIMALS]))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.invalidate', () => ({ value: undefined }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const out = await $.command.run(RUN)
+  expect(out.text).toBe('Channel stats opened.')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'channel-stats', surface, component: 'Pane', requestId: 'channel-stats',
+      props: { title: 'Channel stats', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+    })
+    const row = await ui.find({ type: 'Box', key: 'row-0' })
+    expect(row?.text).toBe('Demo Animals   412    588  18,234       9')
+    expect((await ui.find({ type: 'Text', text: /^Channel/ }))?.props.mono).toBe(true)
+    await ui.unmount()
+  }
+})
+
 test('no API key: the hint, and nothing fetched', async ($, on) => {
   const { statuses } = engine(on)
   let fetched = 0

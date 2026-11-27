@@ -81,7 +81,8 @@ export const statusText = (refs: ChannelRef[], last: Last): string => {
 export const dayOf = (ms: number, offsetMin: number): string => new Date(ms + offsetMin * 60000).toISOString().slice(0, 10)
 
 /** The `/stats` table: numbers, the change since the latest earlier day kept, and the time of the fetch. */
-export const statsTable = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): string => {
+/** The table as its header line, one line per channel and the notes under it, columns padded for a monospace font. */
+export const statsParts = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): { head: string; rows: string[]; notes: string[] } => {
   const before = Object.keys(daily).filter(d => d < today).sort().pop()
   const prev = before ? daily[before] ?? {} : {}
   const head = ['Channel', 'Subs', 'to 1k', 'Views', 'Videos']
@@ -106,14 +107,20 @@ export const statsTable = (refs: ChannelRef[], last: Last, daily: Daily, today: 
   const ats = refs.map(r => last[refKey(r)]?.at).filter((n): n is number => typeof n === 'number')
   const at = ats.length > 0 ? Math.min(...ats) : undefined
   const when = at === undefined ? 'not fetched yet' : `fetched ${new Date(at + offsetMin * 60000).toISOString().slice(0, 16).replace('T', ' ')}`
-  return [
-    '```',
-    line(head),
-    ...rows.map(line),
-    '```',
-    `${before ? `Changes since ${before}.` : 'No earlier day kept yet: changes show from tomorrow.'} Numbers ${when}.${note ? ` ${note}` : ''}`,
-    'Watch hours are not shown: they need the YouTube Analytics API (OAuth), which an API key cannot reach.',
-  ].join('\n')
+  return {
+    head: line(head),
+    rows: rows.map(line),
+    notes: [
+      `${before ? `Changes since ${before}.` : 'No earlier day kept yet: changes show from tomorrow.'} Numbers ${when}.${note ? ` ${note}` : ''}`,
+      'Watch hours are not shown: they need the YouTube Analytics API (OAuth), which an API key cannot reach.',
+    ],
+  }
+}
+
+/** The same table as Markdown text, for a terminal transcript or a log. */
+export const statsTable = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): string => {
+  const p = statsParts(refs, last, daily, today, offsetMin, note)
+  return ['```', p.head, ...p.rows, '```', ...p.notes].join('\n')
 }
 
 const HINT = 'channel-stats: set a YouTube API key'
@@ -198,21 +205,42 @@ async function fetchAll($: EngineInterface, ctx: Ctx) {
 /** One refresh at a time: a second caller waits on the one running. */
 async function refresh($: EngineInterface, ctx: Ctx) {
   if (!ctx.inFlight) {
-    ctx.inFlight = fetchAll($, ctx).catch(() => undefined).finally(() => { ctx.inFlight = undefined })
+    ctx.inFlight = fetchAll($, ctx).catch(() => undefined).finally(() => {
+      ctx.inFlight = undefined
+      // new numbers: an open panel draws them
+      $.ui.invalidate('ui.render')
+    })
   }
   return ctx.inFlight
 }
 
+const PANE = 'channel-stats'
+
+/** `/channel-stats`: fetches if a key is found, then opens the Channel stats panel. */
 async function showStats($: EngineInterface, ctx: Ctx) {
   if (!(await ensureKey($, ctx))) {
     return { text: `${HINT}: see the channel-stats README (Google Cloud console, YouTube Data API v3, API key), then save it in ${ctx.keyFile || KEY_FILE} or the mod's settings.` }
   }
   await refresh($, ctx)
   if (ctx.refs.length === 0) return { text: `channel-stats: no channels listed. Add them to ${ctx.configured || DEFAULT_FILE} (see the README).` }
+  const opened = await $.ui.open({ id: PANE, title: 'Channel stats' }).catch(() => undefined)
+  if (opened?.isPlaced) return { text: 'Channel stats opened.', isTextDisplayOnly: true as const }
+  // a surface that cannot show the panel gets the table as text
+  return { text: await tableText($, ctx) }
+}
+
+async function tableData($: EngineInterface, ctx: Ctx) {
   const last = ((await $.store.get('last')) ?? {}) as Last
   const daily = ((await $.store.get('daily')) ?? {}) as Daily
   const now = await $.clock.now()
-  return { text: statsTable(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note) }
+  return statsParts(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note)
+}
+
+async function tableText($: EngineInterface, ctx: Ctx) {
+  const last = ((await $.store.get('last')) ?? {}) as Last
+  const daily = ((await $.store.get('daily')) ?? {}) as Daily
+  const now = await $.clock.now()
+  return statsTable(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note)
 }
 
 /**
@@ -271,4 +299,24 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'channel-stats' }, $ => showStats($, ctx))
+
+  // the panel: the table in a monospace font, so its columns line up, and the notes under it
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    if (!ctx.apiKey) return <Text>{HINT}</Text>
+    const t = await tableData($, ctx)
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column">
+          <Box><Text mono bold>{t.head}</Text></Box>
+          {t.rows.map((row, i) => (
+            <Box key={`row-${i}`}><Text mono>{row}</Text></Box>
+          ))}
+        </Box>
+        {t.notes.map((n, i) => (
+          <Box key={`note-${i}`}><Text dimColor>{n}</Text></Box>
+        ))}
+      </Box>
+    )
+  })
 }

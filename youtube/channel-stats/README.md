@@ -8,7 +8,7 @@ A status line under the prompt, refreshed when a session starts and every 30 min
 Animal Facts 412/1k subs · 18.2k views │ Space Facts 38/1k subs · 950 views
 ```
 
-And a `/channel-stats` command that answers a short table, with the change since the latest earlier day it kept (normally yesterday):
+And a `/channel-stats` command that opens a **Channel stats** panel with a table (or answers it as text where no panel can be shown), with the change since the latest earlier day it kept (normally yesterday):
 
 ```
 Channel            Subs  to 1k            Views  Videos
