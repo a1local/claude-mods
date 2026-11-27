@@ -3,7 +3,7 @@
 A progress bar above the prompt in Claude Code (the desktop app and the terminal) for renders that take minutes or hours. One line per render:
 
 ```
-The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c  ✕
+✕  The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c
 ```
 
 - **Title**, coloured by channel, so different projects are easy to tell apart.
@@ -12,7 +12,7 @@ The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c  ✕
 - **Frames** done out of the total.
 - **Cores**: CPU cores the render's processes are using now, out of the computer's total.
 
-It shows every render on the computer, whichever session or terminal started it. Renders that describe themselves (below) get a percentage and a finish time. Any other `remotion render` or `blender -b` run, or `ffmpeg` run over a minute long (say, frames being made into a film), it spots on its own, with no percentage, since that progress only goes to whoever started it: `Ep02 → picture-v1.mp4  [--rendering--]  running 16:03  3/10c`. Turn that off with the **Spot other renders** setting. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. The band stays one line high: with several renders, **‹ 2/3 ›** at its right end flicks between them. With [publish-schedule](../../youtube/publish-schedule/) installed too, the two share that one line, most urgent first (a failed render or an overdue upload, then renders running, uploads due soon, renders done), and ‹ › runs across both. The **✕** closes the item in view. `/renders` brings closed rows back and lists every render in the chat:
+It shows every render on the computer, whichever session or terminal started it. Renders that describe themselves (below) get a percentage and a finish time. Any other `remotion render` or `blender -b` run, or `ffmpeg` run over a minute long (say, frames being made into a film), it spots on its own, with no percentage, since that progress only goes to whoever started it: `Ep02 → picture-v1.mp4  [--rendering--]  running 16:03  3/10c`. Turn that off with the **Spot other renders** setting. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. The band stays one line high: with several renders, **‹ 2/3 ›** at its start, after the **✕**, flicks between them. With [publish-schedule](../../youtube/publish-schedule/) installed too, the two share that one line, most urgent first (a failed render or an overdue upload, then renders running, uploads due soon, renders done), and ‹ › runs across both. The **✕** closes the item in view. `/renders` brings closed rows back and lists every render in the chat:
 
 ```
 ╭──────────────────────────────────────────────────────────────────────╮

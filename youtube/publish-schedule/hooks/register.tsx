@@ -11,6 +11,7 @@ const POLL_MS = 60 * 1000
 const SOON_MS = 60 * 60 * 1000
 const EARLIER_DAYS = 7 // overdue items this many days back still show, under "Earlier, not done"
 const TITLE_MAX = 40
+const BAND_TITLE_MAX = 28 // the band's line is short; the full title is in /publishing
 
 const rows = atom({ plugin: 'publish-schedule', key: 'rows' } as const, [])
 const nowAtom = atom({ plugin: 'publish-schedule', key: 'nowMs' } as const, 0)
@@ -180,14 +181,18 @@ export const deckOf = (all: Row[], nowMs: number, offsetMin: number): DeckItem[]
   return list.map((r, i) => ({ id: r.id, rank: statusOf(r, nowMs) === 'overdue' ? RANK.bad : RANK.warn, pieces: lines[i] ?? [] }))
 }
 
-/** One band line per row, columns lined up: status first, then time, channel, kind and title. */
-export const bandPieces = (list: Row[], nowMs: number, offsetMin: number): Piece[][] =>
+/** `38m`, `2h5m`, `2h`: the short span the band uses. */
+export const tightSpan = (ms: number): string => span(ms).replace(/ h ?/, 'h').replace(' min', 'm')
+
+/**
+ * One band line per row, short (less is more): when, in the status colour (`in 38m`, `late 2h5m`),
+ * the channel in its colour, and the title cut short. The time and kind stay in `/publishing`.
+ */
+export const bandPieces = (list: Row[], nowMs: number, _offsetMin: number): Piece[][] =>
   align(list.map(r => [
-    [statusPiece(r, nowMs)],
-    [{ text: hhmm(r.atMs, offsetMin) }],
+    [statusOf(r, nowMs) === 'overdue' ? toned(`late ${tightSpan(nowMs - r.atMs)}`, 'bad', true) : toned(`in ${tightSpan(r.atMs - nowMs)}`, 'warn')],
     [channelPiece(r)],
-    [{ text: kindText(r.kind) }],
-    [{ text: cut(r.title, TITLE_MAX) }],
+    [{ text: cut(r.title, BAND_TITLE_MAX) }],
   ]))
 
 const homeOf = async ($: EngineInterface) =>

@@ -153,18 +153,19 @@ export const recall = (text: string): Reply | undefined => replies.get(text.repl
 export type Page = { at: number; total: number; onPrev: () => void; onNext: () => void }
 
 /**
- * One line of a band above the prompt: the text on the left; at the right end, with several items,
- * `‹ 2/3 ›` to flick between them, then a ✕ that calls `onClose` (the band's own padding after it).
+ * One line of a band above the prompt: at the start, a ✕ that calls `onClose` and, with several
+ * items, `‹ 2/3 ›` to flick between them; then the text. Controls first, so they never move as
+ * the text changes length.
  */
 export const bandLine = (ui: UI, id: string, pieces: Piece[], onClose: () => void, page?: Page) => (
-  <ui.Box key={id} flexDirection="row" flexWrap="nowrap" justifyContent="space-between" alignItems="center" width="100%">
-    {line(ui, pieces)}
+  <ui.Box key={id} flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={1} width="100%">
     <ui.Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={1}>
+      <ui.Button key={`close-${id}`} label="✕" onPress={onClose} />
       {page && page.total > 1 ? <ui.Button key="band-prev" label="‹" onPress={page.onPrev} /> : null}
       {page && page.total > 1 ? <ui.Box key="band-page"><ui.Text mono dimColor>{`${page.at + 1}/${page.total}`}</ui.Text></ui.Box> : null}
       {page && page.total > 1 ? <ui.Button key="band-next" label="›" onPress={page.onNext} /> : null}
-      <ui.Button key={`close-${id}`} label="✕" onPress={onClose} />
     </ui.Box>
+    {line(ui, pieces)}
   </ui.Box>
 )
 

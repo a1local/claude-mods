@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { nameColor } from '../hooks/look'
-import { bandRows, localMs, parseSchedule, scheduleReply, span, statusOf } from '../hooks/register'
+import { bandRows, localMs, parseSchedule, scheduleReply, span, statusOf, tightSpan } from '../hooks/register'
 
 const HOME = '/home/demo'
 const FILE = `${HOME}/.claude-mods/schedule.json`
@@ -155,19 +155,19 @@ test('the band: one line, the most urgent first, ‹ 1/2 › to flick; ✕ close
   const missed = 'publish-schedule:2027-01-15T09:05|Other Channel|Missed Short'
   const soon = 'publish-schedule:2027-01-15T14:00|Demo Channel|Soon Short'
   // one line: the overdue one first, the arrows and 1/2 at the right
-  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short‹1/2›✕')
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('✕‹1/2›late 4h25m  Other Channel  Missed Short')
   expect(await ui.find({ type: 'Box', key: soon })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^overdue/ }))?.props.color).toBe('error')
+  expect((await ui.find({ type: 'Text', text: /^late/ }))?.props.color).toBe('error')
   // › shows the next, lined up with the first
   await ui.press({ key: 'band-next' })
-  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('in 30 min           14:00  Demo Channel   Short  Soon Short‹2/2›✕')
-  expect((await ui.find({ type: 'Text', text: 'in 30 min' }))?.props.color).toBe('warning')
+  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('✕‹2/2›in 30m      Demo Channel   Soon Short')
+  expect((await ui.find({ type: 'Text', text: 'in 30m' }))?.props.color).toBe('warning')
   // lines that are done, later or tomorrow stay off the band
   expect(await ui.find({ type: 'Text', text: /Evening Short/ })).toBeUndefined()
 
   // ✕ closes the one in view; the other is left, alone, with no arrows
   await ui.press({ key: `close-${soon}` })
-  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short✕')
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('✕late 4h25m  Other Channel  Missed Short')
 
   await $.command.run(run())
   expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
@@ -215,6 +215,7 @@ test('times, spans and statuses', () => {
   expect(span(25 * 60000)).toBe('25 min')
   expect(span(125 * 60000)).toBe('2 h 5 min')
   expect(span(120 * 60000)).toBe('2 h')
+  expect([tightSpan(25 * 60000), tightSpan(125 * 60000), tightSpan(120 * 60000)]).toEqual(['25m', '2h5m', '2h'])
   const soon = rows.find(r => r.title === 'Soon Short')
   expect(soon && statusOf(soon, NOW)).toBe('soon')
   expect(bandRows(rows.filter(r => r.title === 'Evening Short'), NOW, OFFSET)).toEqual([])
