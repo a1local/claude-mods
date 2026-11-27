@@ -219,5 +219,9 @@ test('times, spans and statuses', () => {
   const soon = rows.find(r => r.title === 'Soon Short')
   expect(soon && statusOf(soon, NOW)).toBe('soon')
   expect(bandRows(rows.filter(r => r.title === 'Evening Short'), NOW, OFFSET)).toEqual([])
+  // a scheduled upload due in 10 minutes needs nothing done by hand: no reminder
+  const auto = parseSchedule(JSON.stringify([{ at: '2027-01-15T13:40', channel: 'Demo Channel', kind: 'short', title: 'Auto Short', scheduled: true }]), OFFSET)
+  expect(statusOf(auto[0]!, NOW)).toBe('soon')
+  expect(bandRows(auto, NOW, OFFSET)).toEqual([])
   expect(scheduleReply([], NOW, OFFSET, NOW).empty).toBe('Nothing to publish today or tomorrow.')
 })

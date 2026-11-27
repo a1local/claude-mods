@@ -38,7 +38,7 @@ writes `"done": true` for row 2 of the last reply into the schedule file and ans
 
 ### Above the prompt
 
-When something is due within the hour, or overdue, it shows above the prompt on one line, the most urgent first. With several, **‹ 2/3 ›** flicks between them. With [render-progress](../../rendering/render-progress/) installed too, renders and uploads share that one line: an overdue upload or a failed render first, then renders running, uploads due soon, renders done.
+When something you publish by hand is due within the hour, or overdue, it shows above the prompt on one line (scheduled uploads are left off: the platform publishes those by itself), the most urgent first. With several, **‹ 2/3 ›** flicks between them. With [render-progress](../../rendering/render-progress/) installed too, renders and uploads share that one line: an overdue upload or a failed render first, then renders running, uploads due soon, renders done.
 
 ```
 ✕  ‹ 1/2 ›  late 25m  Demo Channel  Squid Have Three Hearts

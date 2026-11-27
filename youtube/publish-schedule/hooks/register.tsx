@@ -167,11 +167,14 @@ export const scheduleReply = (all: Row[], nowMs: number, offsetMin: number, read
   }
 }
 
-/** The band's rows: what is overdue or due within the hour. */
+/**
+ * The band's rows: what needs doing by hand, overdue or due within the hour. A scheduled upload is
+ * left off: the platform publishes it by itself, so a reminder would only look like a job.
+ */
 export const bandRows = (all: Row[], nowMs: number, offsetMin: number): Row[] =>
   shownRows(all, nowMs, offsetMin).filter(r => {
     const s = statusOf(r, nowMs)
-    return s === 'overdue' || s === 'soon'
+    return !r.scheduled && (s === 'overdue' || s === 'soon')
   })
 
 /** The band's rows as items of the shared row: overdue ranks with failures, due soon after renders. */

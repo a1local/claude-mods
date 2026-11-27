@@ -86,6 +86,7 @@ The IDs and handles above are made up. Your channel ID is in YouTube Studio, **S
 | YouTube API key | The YouTube Data API v3 key. Secret. |
 | Channels file | Path of the channels file. Default `~/.claude-mods/channel-stats.json` |
 | API key file | File holding the key on its first line, used when no key is set. Default `~/.claude-mods/youtube-api-key` |
+| Status line | On: subscribers and views in the status line under the prompt. Off: only `/channel-stats` shows them. Default on |
 
 ## Licence
 

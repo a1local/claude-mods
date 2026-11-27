@@ -1,6 +1,6 @@
 {
   "name": "channel-stats",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "YouTube channel numbers in Claude Code: subscribers and views of your channels in the status line, refreshed every 30 minutes, and a /stats table with the change since yesterday. Uses a YouTube Data API key.",
   "author": {
     "name": "A1 Local"
@@ -25,6 +25,12 @@
       "title": "API key file",
       "description": "File holding the key on its first line, used when no key is set above (for a mod loaded from a folder). Default ~/.claude-mods/youtube-api-key",
       "default": ""
+    },
+    "statusLine": {
+      "type": "boolean",
+      "title": "Status line",
+      "description": "Show subscribers and views in the status line under the prompt. Off: only /channel-stats shows them",
+      "default": true
     }
   }
 }

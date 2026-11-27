@@ -12,6 +12,12 @@ const SUB_GOAL = 1000
 const KEEP_DAYS = 40
 const DEFAULT_FILE = '~/.claude-mods/channel-stats.json'
 
+// the `statusLine` setting: off keeps the numbers out of the status line; /channel-stats still answers
+let statusOn = true
+function showStatus($: EngineInterface, text: string | undefined) {
+  $.ui.status(statusOn ? text : undefined)
+}
+
 /** One channel as the channels file lists it. */
 export type ChannelRef = { id?: string; handle?: string; label?: string; color?: string }
 
@@ -118,11 +124,11 @@ async function fetchAll($: EngineInterface, ctx: Ctx) {
   const { path, list } = await loadRefs($, ctx)
   ctx.refs = list
   if (!ctx.apiKey) {
-    $.ui.status(HINT)
+    showStatus($, HINT)
     return
   }
   if (list.length === 0) {
-    $.ui.status(`channel-stats: no channels in ${path}`)
+    showStatus($, `channel-stats: no channels in ${path}`)
     return
   }
   const now = await $.clock.now()
@@ -162,7 +168,7 @@ async function fetchAll($: EngineInterface, ctx: Ctx) {
   await $.store.set('daily', Object.fromEntries(keep.map(d => [d, daily[d] ?? {}])))
 
   const shown = list.some(r => last[refKey(r)])
-  $.ui.status(shown ? statusText(list, last) : `channel-stats: YouTube not reached (${errors[0] ?? 'no data'})`)
+  showStatus($, shown ? statusText(list, last) : `channel-stats: YouTube not reached (${errors[0] ?? 'no data'})`)
 }
 
 /** One refresh at a time: a second caller waits on the one running. */
@@ -257,7 +263,7 @@ async function keyFromFile($: EngineInterface, path: string): Promise<string> {
 async function ensureKey($: EngineInterface, ctx: Ctx): Promise<boolean> {
   if (!ctx.apiKey) ctx.apiKey = await keyFromFile($, ctx.keyFile || KEY_FILE)
   if (!ctx.apiKey) {
-    $.ui.status(HINT)
+    showStatus($, HINT)
     return false
   }
   if (!ctx.isRunning) {
@@ -277,6 +283,7 @@ async function start($: EngineInterface, ctx: Ctx) {
 }
 
 export const register: Register = (on, options) => {
+  statusOn = options.statusLine !== false
   const ctx: Ctx = {
     apiKey: typeof options.apiKey === 'string' ? options.apiKey.trim() : '',
     configured: typeof options.configFile === 'string' ? options.configFile.trim() : '',
