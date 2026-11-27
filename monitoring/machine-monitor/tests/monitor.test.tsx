@@ -158,6 +158,11 @@ test('parsers and the pattern match', () => {
   expect(isHeavy('./scripts/render-film.sh 10', ['render-film.sh'])).toBe(true)
   expect(isHeavy('/Applications/Blender.app/Contents/MacOS/Blender -b f.blend', ['blender -b'])).toBe(true)
   expect(isHeavy('ffprobe in.mp4', ['ffmpeg'])).toBe(false)
+  // text a command writes is not a command it runs: here-documents and single-quoted text are skipped
+  expect(isHeavy("python3 - <<'EOF'\ns = 'npx remotion render x'\nEOF\necho done", ['remotion render'])).toBe(false)
+  expect(isHeavy('cat > notes.md <<EOF\nrun blender -b later\nEOF', ['blender -b'])).toBe(false)
+  expect(isHeavy("grep -n 'remotion render' PLAYBOOK.md", ['remotion render'])).toBe(false)
+  expect(isHeavy("cat <<'EOF' > a.txt\nx\nEOF\nnpx remotion render b/ Film out.mp4", ['remotion render'])).toBe(true)
   expect(parseSwap('total = 2.00G  used = 512.00M  free = 1.50G')).toEqual({ usedGb: 0.5, totalGb: 2 })
   expect(parseDf('garbage')).toBe(undefined)
   expect(parseGpu('"Device Utilization %"=12 "Device Utilization %"=40')).toBe(40)

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { firstMatch, parseRules } from '../hooks/register'
+import { firstMatch, parseRules, runnable } from '../hooks/register'
 
 const HOME = '/home/demo'
 const FILE = `${HOME}/.claude-mods/command-guard.json`
@@ -186,4 +186,13 @@ test('parseRules: bad rules are skipped with a reason, good ones kept; g and y f
   expect(firstMatch(rules, 'Bash', ['RM -rf /'])?.name).toBe('ok')
   expect(firstMatch(rules, 'Edit', ['rm -rf /'])).toBe(undefined)
   expect(parseRules('{"rules": 3}').problems[0]).toContain('no "rules" list')
+})
+
+test('text a command only writes is not checked as a command', () => {
+  // a here-document body or single-quoted text is data: a doc that quotes a forbidden command is fine
+  expect(runnable("cat > notes.md <<'EOF'\nnever run pkill here\nEOF")).not.toContain('pkill')
+  expect(runnable("python3 -c 'print(\"pkill\")'")).not.toContain('pkill')
+  // the command itself still is
+  expect(runnable('cat <<EOF > a.txt\nx\nEOF\npkill -f x')).toContain('pkill -f x')
+  expect(runnable('pkill -f "remotion render"')).toContain('pkill')
 })

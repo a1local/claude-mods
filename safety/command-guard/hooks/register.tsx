@@ -96,6 +96,15 @@ const load = async ($: EngineInterface): Promise<Loaded> => {
   return loaded
 }
 
+/**
+ * The parts of a shell command that run: here-document bodies and single-quoted text are dropped,
+ * since they are data (a file or doc being written, a `python -c '...'` program), not the command.
+ */
+export const runnable = (command: string): string =>
+  command
+    .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, ' ')
+    .replace(/'[^']*'/g, "''")
+
 /** The refusal text when a rule matches; undefined to let the call run. Fails open. */
 const judge = async ($: EngineInterface, tool: Tool, texts: readonly (string | undefined)[]) => {
   let hit: Compiled | undefined
@@ -123,7 +132,7 @@ export const register: Register = (on, options) => {
   reported.clear()
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const deny = await judge($, 'Bash', [e.command])
+    const deny = await judge($, 'Bash', [runnable(e.command)])
     return deny ? { deny } : next(e)
   }).catch(($, e, next) => {
     failOpen($)

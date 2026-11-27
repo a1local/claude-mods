@@ -119,9 +119,20 @@ export const statusText = (r: Reading): string | undefined => {
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/**
+ * The parts of a shell command that run: here-document bodies and single-quoted text are dropped,
+ * since they are data (a script being written, a `python -c '...'` program), not the command itself.
+ */
+export const runnable = (command: string): string =>
+  command
+    .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, ' ')
+    .replace(/'[^']*'/g, "''")
+
 /** Whether a Bash command runs one of the heavy jobs: each pattern as words, any case. */
-export const isHeavy = (command: string, patterns: readonly string[]): boolean =>
-  patterns.some(p => new RegExp(`(^|[^A-Za-z0-9_])${escape(p.trim())}(?![A-Za-z0-9_])`, 'i').test(command))
+export const isHeavy = (command: string, patterns: readonly string[]): boolean => {
+  const code = runnable(command)
+  return patterns.some(p => new RegExp(`(^|[^A-Za-z0-9_])${escape(p.trim())}(?![A-Za-z0-9_])`, 'i').test(code))
+}
 
 export const denyText = (load: number, limit: number) =>
   `Machine load is ${Math.round(load)} (limit ${limit}). Wait a few minutes and retry; check with uptime.`
