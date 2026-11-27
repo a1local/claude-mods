@@ -74,7 +74,7 @@ test('a Remotion render half done shows title, bar, ETA, frames and cores', asyn
   // part1 finished (its 1000 frames) + 500 + 500 = 2,000 of 3,000 after an hour: 30 min left;
   // 07:30 UTC + 30 min at +0800 is 16:00. 2.5 cores (0.4 + 2.1, not the unrelated 0.9), rounded to 3 of 10
   const line = await ui.find({ type: 'Box', key: 'demo-123' })
-  expect(line?.text).toBe('Predators Then And Now[##########66%###--------]ETA:16:002.0k/3.0k3/10c')
+  expect(line?.text).toBe('Predators Then And Now[##########66%###--------]ETA:16:002.0k/3.0k3/10c✕')
   // the filled part of the bar is its own coloured piece, and each column its own cell
   expect((await ui.find({ type: 'Text', text: '##########' }))?.props.color).toBe('claude')
   expect((await ui.find({ type: 'Text', text: '3/10c' }))?.props.color).toBe('warning')
@@ -104,15 +104,22 @@ test('a kind=command render shows what its command reports', async ($, on) => {
   on('clock.now', () => ({ value: NOW }))
   on('clock.every', () => ({ value: undefined }))
   on('fs.list', () => ({ value: [entry('blender-film')] }))
+  on('command.register', () => ({ value: { command: 'renders' } }))
   on('fs.read', () => ({ value: 'kind=command\ntitle=A Blender Film\ncwd=/tmp/film\ncmd=python3 progress.py\ncolor=suggestion\n' }))
   on('process.run', (_, e) => host(e.argv, JSON.stringify({ total: 13482, done: 5000, running: true, started: null, pids: [] })))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   // one sample so far: no rate yet, so no estimate; no live pids, so no cores column
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Box', key: 'blender-film' }))?.text).toBe('A Blender Film[#########-37%-----------]ETA:--:--5.0k/13.5k')
+  expect((await ui.find({ type: 'Box', key: 'blender-film' }))?.text).toBe('A Blender Film[#########-37%-----------]ETA:--:--5.0k/13.5k✕')
   // a color= line sets the title's colour
   expect((await ui.find({ type: 'Text', text: /^A Blender/ }))?.props.color).toBe('suggestion')
+  // ✕ closes the row; /renders brings it back
+  await ui.press({ key: 'close-blender-film' })
+  expect(await ui.find({ type: 'Box', key: 'blender-film' })).toBe(undefined)
+  const out = await $.command.run({ command: 'renders', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  expect(out.text).toBe('Render bar shown again.\nA Blender Film: 37%')
+  expect((await ui.find({ type: 'Box', key: 'blender-film' }))?.text).toContain('A Blender Film')
   await ui.unmount()
 })
 

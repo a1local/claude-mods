@@ -370,6 +370,9 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    await $.command
+      .register({ name: 'renders', description: 'Show the render bar again (brings back rows closed with ✕) and list the renders' })
+      .catch(() => undefined)
     const run = (argv: string[]) => $.process.run(argv).then(r => r.stdout.trim()).catch(() => '')
     // the module has no time zone or home folder of its own: ask the computer once
     const m = /^([+-])(\d\d)(\d\d)/.exec(await run(['date', '+%z']))
@@ -384,6 +387,14 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  on('command.run', { command: 'renders' }, async $ => {
+    await update($, hidden, () => [])
+    const list = await read($, rows)
+    if (list.length === 0) return { text: 'No renders to show. The bar appears by itself when a render starts.', isTextDisplayOnly: true as const }
+    const lines = list.map(r => `${r.title}: ${r.stage === 'done' ? 'done' : r.stage === 'failed' ? 'FAILED' : r.fraction !== null ? `${Math.floor(r.fraction * 100)}%` : r.stage}`)
+    return { text: `Render bar shown again.\n${lines.join('\n')}`, isTextDisplayOnly: true as const }
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const hide = await read($, hidden)
@@ -391,26 +402,23 @@ export const register: Register = (on, options) => {
     if (shown.length === 0) return next(e)
 
     const { Box, Text, Button } = $.ui.resolve(e)
-    const over = shown.filter(r => r.stage === 'done' || r.stage === 'failed')
-    const lines = table(shown, e.props.bodyColumns - (over.length > 0 ? 16 : 0), await $.clock.now(), offsetMin, cpus)
+    // room for each row's ✕ at its end
+    const lines = table(shown, e.props.bodyColumns - 4, await $.clock.now(), offsetMin, cpus)
     return (
-      <Box flexDirection="row" gap={1}>
-        <Box flexDirection="column">
-          {shown.map((r, i) => (
-            <Box key={r.id} flexDirection="row" flexWrap="wrap" columnGap={1}>
-              {(lines[i] ?? []).map(cell => (
-                <Box flexDirection="row">
-                  {cell.map(piece => (
-                    <Text mono color={piece.color} bold={piece.bold}>{piece.text}</Text>
-                  ))}
-                </Box>
-              ))}
-            </Box>
-          ))}
-        </Box>
-        {over.length > 0 ? (
-          <Button key="hide-finished" label="Hide finished" onPress={() => update($, hidden, h => [...h, ...over.map(r => r.id)])} />
-        ) : null}
+      <Box flexDirection="column">
+        {shown.map((r, i) => (
+          <Box key={r.id} flexDirection="row" flexWrap="wrap" columnGap={1}>
+            {(lines[i] ?? []).map(cell => (
+              <Box flexDirection="row">
+                {cell.map(piece => (
+                  <Text mono color={piece.color} bold={piece.bold}>{piece.text}</Text>
+                ))}
+              </Box>
+            ))}
+            {/* ✕ closes this row; /renders brings closed rows back */}
+            <Button key={`close-${r.id}`} label="✕" onPress={() => update($, hidden, h => [...h, r.id])} />
+          </Box>
+        ))}
       </Box>
     )
   })

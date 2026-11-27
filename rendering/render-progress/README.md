@@ -12,7 +12,7 @@ The Longest Night On Mars  [###########54%########--------] ETA:21:58 7.4k/13.5k
 - **Frames** done out of the total.
 - **Cores**: CPU cores the render's processes are using now, out of the computer's total.
 
-It shows every render on the computer, whichever session or terminal started it. With nothing rendering, nothing is drawn. A finished render stays for 2 hours or until you press **Hide finished**. A render whose logs stop for 15 minutes turns red as `stalled`.
+It shows every render on the computer, whichever session or terminal started it. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. Every row has a **✕** that closes it; `/renders` brings closed rows back and lists what's rendering. A render whose logs stop for 15 minutes turns red as `stalled`.
 
 When a render finishes, fails or stalls, it raises a toast in Claude Code and a native notification once per change. The notification goes through your Claude Code notification setting, so it can reach your phone. Turn this off with the mod's **Alerts** setting.
 
