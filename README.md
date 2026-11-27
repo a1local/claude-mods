@@ -18,7 +18,7 @@ For long video, animation and 3D renders. [More](rendering/)
 
 | Mod | What it does |
 | --- | --- |
-| [render-progress](rendering/render-progress/) | A pacman-style progress bar above the prompt for every render on the computer (Remotion, Remotion Lambda, Blender or any command that can report frames): title, bar, finish time, frames, cores. It also spots `remotion render` and `blender -b` runs nobody registered. A notification when one finishes, fails or stalls. |
+| [render-progress](rendering/render-progress/) | A pacman-style progress bar above the prompt for every render on the computer (Remotion, Remotion Lambda, Blender or any command that can report frames): title, bar, finish time, frames, cores. It also spots `remotion render`, `blender -b` and long `ffmpeg` runs nobody registered. A notification when one finishes, fails or stalls. |
 
 ## Monitoring
 

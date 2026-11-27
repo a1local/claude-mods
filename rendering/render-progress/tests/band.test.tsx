@@ -184,9 +184,12 @@ test('renders no registry file describes are spotted, registered ones are not sh
     // a Blender queue shot, and Blender open in the app: only the first
     '  700     1  95.0      00:47 /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup -P film.py -- 06-03-arms --anim',
     '  701     1   1.0   10:31:35 /Applications/Blender.app/Contents/MacOS/Blender /x/scenes/A2.blend',
+    // a film made from frames, 6 minutes in: spotted; a quick conversion: not
+    '  800   790 440.0      05:48 ffmpeg -hide_banner -y -framerate 24 -i /x/frames/%05d.png -c:v libx264 /x/render/film.mp4',
+    '  801   790  90.0      00:20 ffmpeg -y -i in.wav -af loudnorm out.wav',
   ].join('\n'))
   const rows = detectRenders(procs, treeOf(procs, [123]))
-  expect(rows.map(r => r.title)).toEqual(['Ep02 → picture-v1.mp4', 'Blender 06-03-arms'])
+  expect(rows.map(r => r.title)).toEqual(['Ep02 → picture-v1.mp4', 'Blender 06-03-arms', 'ffmpeg → film.mp4'])
   expect(rows[0]?.channel).toBe('other')
   expect(rows[0]?.elapsedSec).toBe(16 * 60 + 3)
   // the render and its ffmpeg: 0.1 + 2.3 cores

@@ -201,14 +201,15 @@ const projectOf = (path: string) => {
 }
 
 /**
- * Renders no registry file describes: `remotion render` (the node process itself) and `blender -b`
- * processes outside the process trees of registered renders. Their progress goes to whoever started
+ * Renders no registry file describes: `remotion render` (the node process itself), `blender -b`, and
+ * `ffmpeg` runs over a minute long, outside the process trees of registered renders. Their progress goes to whoever started
  * them, so a row shows what is rendering, for how long, and on how many cores.
  */
-export const detectRenders = (procs: Proc[], covered: Set<number>): RenderRow[] => {
+export const detectRenders = (procs: Proc[], covered: Set<number>, minFfmpegSec = 60): RenderRow[] => {
   const out: RenderRow[] = []
+  const taken = new Set(covered)
   for (const x of procs) {
-    if (covered.has(x.pid)) continue
+    if (taken.has(x.pid)) continue
     const remotion = /^node\s+(\S*remotion)\s+render\s+(.*)$/.exec(x.args)
     if (remotion) {
       const words = (remotion[2] ?? '').split(/\s+/).filter(w => w && !w.startsWith('-'))
@@ -233,6 +234,21 @@ export const detectRenders = (procs: Proc[], covered: Set<number>): RenderRow[] 
         cores: coresOf(procs, [x.pid]),
       })
     }
+  }
+  // then long ffmpeg runs (an image sequence made into a film, a big re-encode) that are not part of a
+  // render above (Remotion runs its own ffmpeg); quick ones under a minute are left out
+  for (const r of out) for (const pid of treeOf(procs, [Number(r.id.replace('detected-', ''))])) taken.add(pid)
+  for (const x of procs) {
+    if (taken.has(x.pid) || x.etimeSec < minFfmpegSec) continue
+    const words = x.args.split(/\s+/)
+    if (!/(^|\/)ffmpeg$/.test(words[0] ?? '')) continue
+    const output = [...words].reverse().find(w => w && !w.startsWith('-'))
+    out.push({
+      id: `detected-${x.pid}`, kind: 'detected', channel: 'ffmpeg',
+      title: `ffmpeg → ${output ? base(output) : 'output'}`,
+      stage: 'rendering', fraction: null, framesDone: 0, framesTotal: 0, elapsedSec: x.etimeSec, leftSec: null,
+      cores: coresOf(procs, [x.pid]),
+    })
   }
   return out
 }
