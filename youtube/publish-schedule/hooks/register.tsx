@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { align, bandLine, cut, hhmm, label, nameColor, num, parseOffset, recall, remember, replyBox, title, toned } from './look'
+import { align, bandLine, cut, hhmm, label, nameColor, num, parseOffset, recall, remember, replyBox, title, toned, turn } from './look'
 import type { Cell, Piece, Reply } from './look'
 import type { Row, ScheduleItem, Status } from '../types'
 
@@ -17,6 +17,7 @@ const nowAtom = atom({ plugin: 'publish-schedule', key: 'nowMs' } as const, 0)
 const offsetAtom = atom({ plugin: 'publish-schedule', key: 'offsetMin' } as const, 0)
 const problemAtom = atom({ plugin: 'publish-schedule', key: 'problem' } as const, '')
 const hiddenAtom = atom({ plugin: 'publish-schedule', key: 'hidden' } as const, [])
+const pageAtom = atom({ plugin: 'publish-schedule', key: 'page' } as const, 0)
 
 /** `2026-11-28T14:00` (local, `offsetMin` east of UTC) as epoch ms, or NaN. */
 export const localMs = (at: string, offsetMin: number): number => {
@@ -271,6 +272,7 @@ export const register: Register = (on, options) => {
     if (args) return { text: 'publishing: /publishing lists the schedule; /publishing done <n> marks row n done.' }
     // the command also brings back band lines closed with ✕
     await update($, hiddenAtom, () => [])
+    await update($, pageAtom, () => 0)
     return answer($, ctx)
   })
 
@@ -288,10 +290,18 @@ export const register: Register = (on, options) => {
     const list = bandRows(await read($, rows), nowMs, offsetMin, await read($, hiddenAtom))
     if (list.length === 0) return next(e)
     const ui = $.ui.resolve(e)
+    // one line, one reminder at a time; with several, ‹ 2/3 › flicks between them (the most urgent first)
     const lines = bandPieces(list, nowMs, offsetMin)
+    const at = Math.min(Math.max(0, await read($, pageAtom)), list.length - 1)
+    const r = list[at] as (typeof list)[number]
     return (
       <ui.Box key="publish-band" flexDirection="column">
-        {list.map((r, i) => bandLine(ui, r.id, lines[i] ?? [], () => update($, hiddenAtom, h => [...h, r.id])))}
+        {bandLine(ui, r.id, lines[at] ?? [], () => { void update($, hiddenAtom, h => [...h, r.id]) }, {
+          at,
+          total: list.length,
+          onPrev: () => { void update($, pageAtom, () => turn(at, -1, list.length)) },
+          onNext: () => { void update($, pageAtom, () => turn(at, 1, list.length)) },
+        })}
       </ui.Box>
     )
   })

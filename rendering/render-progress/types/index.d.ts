@@ -22,6 +22,6 @@ export type RenderRow = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'render-progress': { rows: RenderRow[]; hidden: string[] }
+    'render-progress': { rows: RenderRow[]; hidden: string[]; page: number }
   }
 }

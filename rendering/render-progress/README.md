@@ -12,7 +12,7 @@ The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c  ✕
 - **Frames** done out of the total.
 - **Cores**: CPU cores the render's processes are using now, out of the computer's total.
 
-It shows every render on the computer, whichever session or terminal started it. Renders that describe themselves (below) get a percentage and a finish time. Any other `remotion render` or `blender -b` run it spots on its own, with no percentage, since that progress only goes to whoever started it: `Ep02 → picture-v1.mp4  [--rendering--]  running 16:03  3/10c`. Turn that off with the **Spot other renders** setting. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. Every row has a **✕** that closes it. `/renders` brings closed rows back and lists every render in the chat:
+It shows every render on the computer, whichever session or terminal started it. Renders that describe themselves (below) get a percentage and a finish time. Any other `remotion render` or `blender -b` run it spots on its own, with no percentage, since that progress only goes to whoever started it: `Ep02 → picture-v1.mp4  [--rendering--]  running 16:03  3/10c`. Turn that off with the **Spot other renders** setting. With nothing rendering, nothing is drawn. A finished render stays for 2 hours. The band stays one line high: with several renders, **‹ 2/3 ›** at its right end flicks between them. The **✕** closes the render in view. `/renders` brings closed rows back and lists every render in the chat:
 
 ```
 ╭──────────────────────────────────────────────────────────────────────╮

@@ -149,13 +149,27 @@ export const remember = (reply: Reply): string => {
 }
 export const recall = (text: string): Reply | undefined => replies.get(text.replace(/^[\w-]+:\s*/, '')) ?? replies.get(text)
 
-/** One line of a band above the prompt: the text on the left, a ✕ at the right end (the band's own padding after it) that calls `onClose`. */
-export const bandLine = (ui: UI, id: string, pieces: Piece[], onClose: () => void) => (
+/** Paging for a band with several items: which one shows (0-based), how many, and the arrows' actions. */
+export type Page = { at: number; total: number; onPrev: () => void; onNext: () => void }
+
+/**
+ * One line of a band above the prompt: the text on the left; at the right end, with several items,
+ * `‹ 2/3 ›` to flick between them, then a ✕ that calls `onClose` (the band's own padding after it).
+ */
+export const bandLine = (ui: UI, id: string, pieces: Piece[], onClose: () => void, page?: Page) => (
   <ui.Box key={id} flexDirection="row" flexWrap="nowrap" justifyContent="space-between" alignItems="center" width="100%">
     {line(ui, pieces)}
-    <ui.Button key={`close-${id}`} label="✕" onPress={onClose} />
+    <ui.Box flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap={1}>
+      {page && page.total > 1 ? <ui.Button key="band-prev" label="‹" onPress={page.onPrev} /> : null}
+      {page && page.total > 1 ? <ui.Box key="band-page"><ui.Text mono dimColor>{`${page.at + 1}/${page.total}`}</ui.Text></ui.Box> : null}
+      {page && page.total > 1 ? <ui.Button key="band-next" label="›" onPress={page.onNext} /> : null}
+      <ui.Button key={`close-${id}`} label="✕" onPress={onClose} />
+    </ui.Box>
   </ui.Box>
 )
+
+/** Where a band's page index lands: wrapped round, so › on the last goes to the first. */
+export const turn = (at: number, step: number, total: number): number => (total <= 0 ? 0 : (((at + step) % total) + total) % total)
 
 /** A status line: `label value · label value`. */
 export const status = (parts: readonly (readonly [string, string])[]): string =>

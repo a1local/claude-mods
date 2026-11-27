@@ -148,25 +148,29 @@ test('/publishing done with no such row writes nothing', async ($, on) => {
   expect(disk.writes).toBe(0)
 })
 
-test('the band: one line per item due within the hour or overdue; ✕ closes one, /publishing brings it back', async ($, on) => {
+test('the band: one line, the most urgent first, ‹ 1/2 › to flick; ✕ closes one, /publishing brings it back', async ($, on) => {
   engine(on, ITEMS)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const missed = '2027-01-15T09:05|Other Channel|Missed Short'
   const soon = '2027-01-15T14:00|Demo Channel|Soon Short'
-  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short✕')
-  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('in 30 min           14:00  Demo Channel   Short  Soon Short✕')
+  // one line: the overdue one first, the arrows and 1/2 at the right
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short‹1/2›✕')
+  expect(await ui.find({ type: 'Box', key: soon })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^overdue/ }))?.props.color).toBe('error')
+  // › shows the next, lined up with the first
+  await ui.press({ key: 'band-next' })
+  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('in 30 min           14:00  Demo Channel   Short  Soon Short‹2/2›✕')
   expect((await ui.find({ type: 'Text', text: 'in 30 min' }))?.props.color).toBe('warning')
   // lines that are done, later or tomorrow stay off the band
   expect(await ui.find({ type: 'Text', text: /Evening Short/ })).toBeUndefined()
 
-  await ui.press({ key: `close-${missed}` })
-  expect(await ui.find({ type: 'Box', key: missed })).toBeUndefined()
-  expect((await ui.find({ type: 'Box', key: soon }))?.text).toContain('Soon Short')
+  // ✕ closes the one in view; the other is left, alone, with no arrows
+  await ui.press({ key: `close-${soon}` })
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short✕')
 
   await $.command.run(run())
-  expect((await ui.find({ type: 'Box', key: missed }))?.text).toContain('Missed Short')
+  expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
   await ui.unmount()
 })
 

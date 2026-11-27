@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { RenderRow } from '../types'
-import { align, bandLine, bar, clock, cut, hhmm, label, nameColor, parseOffset, recall, remember, replyBox, short, title, toned } from './look'
+import { align, bandLine, bar, clock, cut, hhmm, label, nameColor, parseOffset, recall, remember, replyBox, short, title, toned, turn } from './look'
 import type { Piece, Reply, Row, Tone } from './look'
 
 // Each render describes itself in one small file in the registry folder (default ~/.render-progress):
@@ -15,6 +15,8 @@ const IGNORE_OLDER_SEC = 2 * 24 * 60 * 60
 
 const rows = atom({ plugin: 'render-progress', key: 'rows' } as const, [])
 const hidden = atom({ plugin: 'render-progress', key: 'hidden' } as const, [])
+// which render the band shows when several are running (‹ › flick between them)
+const page = atom({ plugin: 'render-progress', key: 'page' } as const, 0)
 
 /** Parse a registry file's `key=value` lines. */
 export const parseRegistry = (text: string): Record<string, string> => {
@@ -398,6 +400,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'renders' }, async $ => {
     await update($, hidden, () => [])
+    await update($, page, () => 0)
     const reply = rendersReply(await read($, rows), await $.clock.now(), offsetMin, cpus)
     return { text: remember(reply), isTextDisplayOnly: true as const }
   })
@@ -408,7 +411,8 @@ export const register: Register = (on, options) => {
     return reply ? replyBox($.ui.resolve(e), reply) : next(e)
   })
 
-  // the band above the prompt: one line per render, a ✕ at the end of each
+  // the band above the prompt: one line, one render at a time; with several, ‹ 2/3 › flicks between
+  // them (lined up as a set, so nothing jumps as you flick) and ✕ closes the one in view
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const hide = await read($, hidden)
@@ -416,10 +420,13 @@ export const register: Register = (on, options) => {
     if (shown.length === 0) return next(e)
     const ui = $.ui.resolve(e)
     const lines = renderLines(shown, await $.clock.now(), offsetMin, cpus)
-    return (
-      <ui.Box flexDirection="column">
-        {shown.map((r, i) => bandLine(ui, r.id, lines[i] ?? [], () => { void update($, hidden, h => [...h, r.id]) }))}
-      </ui.Box>
-    )
+    const at = Math.min(Math.max(0, await read($, page)), shown.length - 1)
+    const r = shown[at] as RenderRow
+    return bandLine(ui, r.id, lines[at] ?? [], () => { void update($, hidden, h => [...h, r.id]) }, {
+      at,
+      total: shown.length,
+      onPrev: () => { void update($, page, () => turn(at, -1, shown.length)) },
+      onNext: () => { void update($, page, () => turn(at, 1, shown.length)) },
+    })
   })
 }

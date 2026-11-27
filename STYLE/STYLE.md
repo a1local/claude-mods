@@ -7,7 +7,7 @@ Every mod in this repo looks and behaves the same way, so once you know one you 
 | Place | Used for | How it looks |
 | --- | --- | --- |
 | **A command's reply** in the chat | Every mod's own slash command | A rounded box: a bold title, one monospace line per item, columns lined up, a dim footnote. No side panels. |
-| **Rows above the prompt** | Things happening now or due soon (renders, uploads due within the hour) | One line per item, never wrapping, with a **✕** at the end. The mod's command brings closed rows back. |
+| **Rows above the prompt** | Things happening now or due soon (renders, uploads due within the hour) | One line, never wrapping. With several items, **‹ 2/3 ›** at the right flicks between them (most urgent first), lined up so nothing jumps; a **✕** closes the one in view. The mod's command brings closed rows back and starts again from the first. |
 | **The status line** | Numbers worth a glance all the time (machine load, channel subscribers) | `label value · label value`, short. |
 | **Alerts** | Something finished, failed or crossed a limit | A toast plus a native notification, worded `<what>: <what happened>`, once per change. |
 

@@ -193,3 +193,26 @@ test('renders no registry file describes are spotted, registered ones are not sh
   expect(Math.round((rows[0]?.cores ?? 0) * 10)).toBe(24)
   expect(parseEtime('1-02:03:04')).toBe(93784)
 })
+
+test('several renders share one band line: ‹ 1/2 › flicks between them', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: NOW }))
+  on('clock.every', () => ({ value: undefined }))
+  on('fs.list', () => ({ value: [entry('film-a'), entry('film-b')] }))
+  on('fs.read', (_, e) => ({ value: `kind=command\ntitle=${e.path.endsWith('film-a') ? 'Film A' : 'Film B'}\ncmd=x\n` }))
+  on('process.run', (_, e) => host(e.argv, JSON.stringify({ total: 100, done: 40, running: true }), ''))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // one line: the first render, and 1/2 between the arrows
+  expect((await ui.find({ type: 'Box', key: 'film-a' }))?.text).toContain('Film A')
+  expect(await ui.find({ type: 'Box', key: 'film-b' })).toBe(undefined)
+  expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
+  await ui.press({ key: 'band-next' })
+  expect((await ui.find({ type: 'Box', key: 'film-b' }))?.text).toContain('Film B')
+  expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('2/2')
+  // › on the last wraps round to the first
+  await ui.press({ key: 'band-next' })
+  expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
+  await ui.unmount()
+})

@@ -36,6 +36,8 @@ declare module 'claude-code' {
       problem: string
       /** Band lines closed with ✕ this session, by row id; `/publishing` clears it. */
       hidden: string[]
+      /** Which reminder the band shows when several are due (‹ › flick between them). */
+      page: number
     }
   }
 }
