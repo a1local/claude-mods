@@ -56,6 +56,14 @@ The key is free. The mod uses about 1 unit of the default 10,000 units a day per
 
 The install shows a screen for the mod's settings: paste the key into **YouTube API key** there. To set or change it later, run `/plugin` in a terminal session, open **channel-stats** under the installed plugins and configure its options. The field is marked sensitive, so Claude Code keeps the key in secure storage rather than in `settings.json`, and it is not a row of `/config`. Until a key is set, the status line says `channel-stats: set a YouTube API key` and nothing is fetched.
 
+**Loaded from a folder instead** (`claude --plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS`), no settings screen asks for the key. Save it in a file only you can read, and the mod uses it when no key is set above. Copy the key, then:
+
+```bash
+mkdir -p ~/.claude-mods && pbpaste > ~/.claude-mods/youtube-api-key && chmod 600 ~/.claude-mods/youtube-api-key
+```
+
+(`pbpaste` is macOS; elsewhere, write the key into that file with your editor.) The key is read when a session starts.
+
 The mod sends the key in the `x-goog-api-key` header, so it never appears in a URL.
 
 ## List your channels
@@ -77,6 +85,7 @@ The IDs and handles above are made up. Your channel ID is in YouTube Studio, **S
 | --- | --- |
 | YouTube API key | The YouTube Data API v3 key. Secret. |
 | Channels file | Path of the channels file. Default `~/.claude-mods/channel-stats.json` |
+| API key file | File holding the key on its first line, used when no key is set. Default `~/.claude-mods/youtube-api-key` |
 
 ## Licence
 

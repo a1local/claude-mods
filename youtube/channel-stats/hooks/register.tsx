@@ -119,7 +119,7 @@ export const statsTable = (refs: ChannelRef[], last: Last, daily: Daily, today: 
 const HINT = 'channel-stats: set a YouTube API key'
 
 /** What a session of the module holds between refreshes. */
-type Ctx = { apiKey: string; configured: string; offsetMin: number; refs: ChannelRef[]; note: string; inFlight?: Promise<void> }
+type Ctx = { apiKey: string; configured: string; keyFile: string; offsetMin: number; refs: ChannelRef[]; note: string; inFlight?: Promise<void> }
 
 async function loadRefs($: EngineInterface, ctx: Ctx) {
   const home = (await $.env.get('HOME').catch(() => undefined)) ?? ''
@@ -213,8 +213,21 @@ async function showStats($: EngineInterface, ctx: Ctx) {
   return { text: statsTable(ctx.refs, last, daily, dayOf(now, ctx.offsetMin), ctx.offsetMin, ctx.note) }
 }
 
+/**
+ * The key from a file, for a mod loaded from a folder (`--plugin-dir`, `CLAUDE_CODE_PLUGIN_DIRS`), where no
+ * settings screen asks for the secret: `~/.claude-mods/youtube-api-key` by default, its first line.
+ */
+export const KEY_FILE = '~/.claude-mods/youtube-api-key'
+async function keyFromFile($: EngineInterface, path: string): Promise<string> {
+  const home = path.startsWith('~') ? ((await $.env.get('HOME').catch(() => undefined)) ?? '') : ''
+  const full = path.replace(/^~(?=\/|$)/, home)
+  const text = await $.fs.read(full).then(t => (typeof t === 'string' ? t : '')).catch(() => '')
+  return (text.split('\n')[0] ?? '').trim()
+}
+
 async function start($: EngineInterface, ctx: Ctx) {
   await $.command.register({ name: 'channel-stats', description: 'YouTube channel subscribers, views and videos, with the change since yesterday' })
+  if (!ctx.apiKey) ctx.apiKey = await keyFromFile($, ctx.keyFile || KEY_FILE)
   if (!ctx.apiKey) {
     $.ui.status(HINT)
     return
@@ -231,6 +244,7 @@ export const register: Register = (on, options) => {
   const ctx: Ctx = {
     apiKey: typeof options.apiKey === 'string' ? options.apiKey.trim() : '',
     configured: typeof options.configFile === 'string' ? options.configFile.trim() : '',
+    keyFile: typeof options.keyFile === 'string' ? options.keyFile.trim() : '',
     offsetMin: 0,
     refs: [],
     note: '',

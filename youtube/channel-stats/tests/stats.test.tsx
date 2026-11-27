@@ -87,6 +87,37 @@ test('the status line and /channel-stats show the numbers the API answers', OPTI
   expect(out.text).toContain('Changes since 2027-01-14.')
 })
 
+test('a key in ~/.claude-mods/youtube-api-key is used when no key is set', async ($, on) => {
+  const statuses: (string | undefined)[] = []
+  const requests: { url: string; key?: string }[] = []
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: { command: 'channel-stats' } }))
+  on('ui.status', (_, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
+  on('process.run', () => ran('+1000\n'))
+  on('fs.read', (_, e) => {
+    if (e.path === `${HOME}/.claude-mods/youtube-api-key`) return { value: 'file-key-not-real\n' }
+    if (e.path === FILE) return { value: CHANNELS }
+    throw new Error('ENOENT')
+  })
+  on('http.fetch', (_, e) => {
+    requests.push({ url: e.url, key: e.init?.headers?.['x-goog-api-key'] })
+    return answer(e.url.includes('forHandle=') ? [SPACE] : [ANIMALS])
+  })
+  mock.env(on, { HOME })
+  mock.store(on, {})
+  mock.clock(on, { now: NOW })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run(RUN)
+
+  expect(requests.length).toBeGreaterThan(0)
+  expect(requests.every(r => r.key === 'file-key-not-real')).toBe(true)
+  expect(statuses[statuses.length - 1]).toContain('Demo Animals 412/1k subs')
+})
+
 test('no API key: the hint, and nothing fetched', async ($, on) => {
   const { statuses } = engine(on)
   let fetched = 0
