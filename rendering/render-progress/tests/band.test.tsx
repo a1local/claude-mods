@@ -74,7 +74,7 @@ test('a Remotion render half done shows title, bar, ETA, frames and cores', asyn
 
   // part1 finished (its 1000 frames) + 500 + 500 = 2,000 of 3,000 after an hour: 30 min left;
   // 07:30 UTC + 30 min at +0800 is 16:00. 2.5 cores (0.4 + 2.1, not the unrelated 0.9), rounded to 3 of 10
-  const line = await ui.find({ type: 'Box', key: 'demo-123' })
+  const line = await ui.find({ type: 'Box', key: 'render-progress:demo-123' })
   expect(line?.text).toBe('Predators Then And Now  [######66%##-----]  ETA:16:00  2.0k/3.0k  3/10c✕')
   // the filled part of the bar is its own coloured piece, and each column its own cell
   expect((await ui.find({ type: 'Text', text: '######' }))?.props.color).toBe('claude')
@@ -112,12 +112,12 @@ test('a kind=command render shows what its command reports', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   // one sample so far: no rate yet, so no estimate; no live pids, so no cores column
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Box', key: 'blender-film' }))?.text).toBe('A Blender Film  [######37%-------]  ETA:--:--  5.0k/13.5k✕')
+  expect((await ui.find({ type: 'Box', key: 'render-progress:blender-film' }))?.text).toBe('A Blender Film  [######37%-------]  ETA:--:--  5.0k/13.5k✕')
   // a color= line sets the title's colour
   expect((await ui.find({ type: 'Text', text: /^A Blender/ }))?.props.color).toBe('suggestion')
   // ✕ closes the row; /renders brings it back
-  await ui.press({ key: 'close-blender-film' })
-  expect(await ui.find({ type: 'Box', key: 'blender-film' })).toBe(undefined)
+  await ui.press({ key: 'close-render-progress:blender-film' })
+  expect(await ui.find({ type: 'Box', key: 'render-progress:blender-film' })).toBe(undefined)
   const out = await $.command.run({ command: 'renders', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
   expect(out.text).toBe('Renders\nA Blender Film  [######37%-------]  ETA:--:--  5.0k/13.5k\n1 rendering · closed rows shown again above the prompt')
   // the reply draws in the chat in the set's look
@@ -125,7 +125,7 @@ test('a kind=command render shows what its command reports', async ($, on) => {
   expect((await reply.find({ type: 'Box', key: 'row-0' }))?.text).toBe('A Blender Film  [######37%-------]  ETA:--:--  5.0k/13.5k')
   expect((await reply.find({ type: 'Box', key: 'foot' }))?.text).toContain('1 rendering')
   await reply.unmount()
-  expect((await ui.find({ type: 'Box', key: 'blender-film' }))?.text).toContain('A Blender Film')
+  expect((await ui.find({ type: 'Box', key: 'render-progress:blender-film' }))?.text).toContain('A Blender Film')
   await ui.unmount()
 })
 
@@ -208,14 +208,52 @@ test('several renders share one band line: ‹ 1/2 › flicks between them', asy
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   // one line: the first render, and 1/2 between the arrows
-  expect((await ui.find({ type: 'Box', key: 'film-a' }))?.text).toContain('Film A')
-  expect(await ui.find({ type: 'Box', key: 'film-b' })).toBe(undefined)
+  expect((await ui.find({ type: 'Box', key: 'render-progress:film-a' }))?.text).toContain('Film A')
+  expect(await ui.find({ type: 'Box', key: 'render-progress:film-b' })).toBe(undefined)
   expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
   await ui.press({ key: 'band-next' })
-  expect((await ui.find({ type: 'Box', key: 'film-b' }))?.text).toContain('Film B')
+  expect((await ui.find({ type: 'Box', key: 'render-progress:film-b' }))?.text).toContain('Film B')
   expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('2/2')
   // › on the last wraps round to the first
   await ui.press({ key: 'band-next' })
   expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
+  await ui.unmount()
+})
+
+test('one row for the set: an overdue upload from publish-schedule comes before a running render', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: NOW }))
+  on('clock.every', () => ({ value: undefined }))
+  on('process.run', (_, e) => host(e.argv))
+  on('fs.list', (_, e) => ({
+    value: e.path === REG ? [entry('demo-123')]
+      : e.path === WORK ? ['status', 'part1.log', 'part2.log', 'part3.log'].map(entry)
+      : [],
+  }))
+  on('fs.exists', (_, e) => ({ value: e.path in files }))
+  on('fs.stat', (_, e) => {
+    const f = files[e.path]
+    if (!f) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: f.text.length, mtimeMs: f.mtimeMs, isLink: false } }
+  })
+  on('fs.read', (_, e) => {
+    const f = files[e.path]
+    if (!f) throw new Error('ENOENT')
+    return { value: f.text }
+  })
+  // publish-schedule loaded beside it, with one upload overdue
+  const upload = { id: 'up', rank: 0, pieces: [{ text: 'overdue 5 min', color: 'error' }, { text: '  Squid Short' }] }
+  on('state.get', { plugin: 'publish-schedule' } as never, () => ({ value: { value: { items: [upload], reset: 0 }, version: 1 } }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.find({ type: 'Box', key: 'publish-schedule:up' }))?.text).toBe('overdue 5 min  Squid Short‹1/2›✕')
+  expect(await ui.find({ type: 'Box', key: 'render-progress:demo-123' })).toBe(undefined)
+  await ui.press({ key: 'band-next' })
+  expect((await ui.find({ type: 'Box', key: 'render-progress:demo-123' }))?.text).toContain('Predators Then And Now')
+  // ✕ on the upload leaves the render alone on the row, with no arrows
+  await ui.press({ key: 'band-prev' })
+  await ui.press({ key: 'close-publish-schedule:up' })
+  expect((await ui.find({ type: 'Box', key: 'render-progress:demo-123' }))?.text).toMatch(/3\/10c✕$/)
   await ui.unmount()
 })

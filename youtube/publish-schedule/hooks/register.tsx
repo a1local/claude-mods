@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { align, bandLine, cut, hhmm, label, nameColor, num, parseOffset, recall, remember, replyBox, title, toned, turn } from './look'
-import type { Cell, Piece, Reply } from './look'
+import { align, cut, deckRow, hhmm, label, nameColor, NO_VIEW, num, parseOffset, RANK, readDecks, recall, remember, replyBox, title, toned } from './look'
+import type { Cell, DeckItem, Piece, Reply } from './look'
 import type { Row, ScheduleItem, Status } from '../types'
 
 // The schedule lives in one JSON file (default ~/.claude-mods/schedule.json): a list of
@@ -16,8 +16,10 @@ const rows = atom({ plugin: 'publish-schedule', key: 'rows' } as const, [])
 const nowAtom = atom({ plugin: 'publish-schedule', key: 'nowMs' } as const, 0)
 const offsetAtom = atom({ plugin: 'publish-schedule', key: 'offsetMin' } as const, 0)
 const problemAtom = atom({ plugin: 'publish-schedule', key: 'problem' } as const, '')
-const hiddenAtom = atom({ plugin: 'publish-schedule', key: 'hidden' } as const, [])
-const pageAtom = atom({ plugin: 'publish-schedule', key: 'page' } as const, 0)
+// this mod's items on the one row above the prompt the set shares, and its view of that row
+const deckAtom = atom({ plugin: 'publish-schedule', key: 'deck' } as const, { items: [], reset: 0 })
+const viewAtom = atom({ plugin: 'publish-schedule', key: 'view' } as const, NO_VIEW)
+let bandOn = true // the `band` setting
 
 /** `2026-11-28T14:00` (local, `offsetMin` east of UTC) as epoch ms, or NaN. */
 export const localMs = (at: string, offsetMin: number): number => {
@@ -164,12 +166,19 @@ export const scheduleReply = (all: Row[], nowMs: number, offsetMin: number, read
   }
 }
 
-/** The band's rows: what is overdue or due within the hour, minus the lines closed with ✕. */
-export const bandRows = (all: Row[], nowMs: number, offsetMin: number, hidden: readonly string[] = []): Row[] =>
+/** The band's rows: what is overdue or due within the hour. */
+export const bandRows = (all: Row[], nowMs: number, offsetMin: number): Row[] =>
   shownRows(all, nowMs, offsetMin).filter(r => {
     const s = statusOf(r, nowMs)
-    return (s === 'overdue' || s === 'soon') && !hidden.includes(r.id)
+    return s === 'overdue' || s === 'soon'
   })
+
+/** The band's rows as items of the shared row: overdue ranks with failures, due soon after renders. */
+export const deckOf = (all: Row[], nowMs: number, offsetMin: number): DeckItem[] => {
+  const list = bandRows(all, nowMs, offsetMin)
+  const lines = bandPieces(list, nowMs, offsetMin)
+  return list.map((r, i) => ({ id: r.id, rank: statusOf(r, nowMs) === 'overdue' ? RANK.bad : RANK.warn, pieces: lines[i] ?? [] }))
+}
 
 /** One band line per row, columns lined up: status first, then time, channel, kind and title. */
 export const bandPieces = (list: Row[], nowMs: number, offsetMin: number): Piece[][] =>
@@ -201,6 +210,8 @@ const poll = async ($: EngineInterface, file: string) => {
   await update($, rows, () => found)
   await update($, problemAtom, () => problem)
   await update($, nowAtom, () => nowMs)
+  const items = bandOn ? deckOf(found, nowMs, offsetMin) : []
+  await update($, deckAtom, d => ({ items, reset: d.reset || 0 }))
 }
 
 /** Set `done: true` on the entry `id` names, in the file as it is now, and read it again. */
@@ -248,7 +259,7 @@ async function markRow($: EngineInterface, ctx: Ctx, n: number) {
 
 export const register: Register = (on, options) => {
   const ctx: Ctx = { file: '', numbered: [] }
-  const bandOn = options.band !== 'off'
+  bandOn = options.band !== 'off'
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -271,8 +282,7 @@ export const register: Register = (on, options) => {
     if (done) return markRow($, ctx, Number(done[1]))
     if (args) return { text: 'publishing: /publishing lists the schedule; /publishing done <n> marks row n done.' }
     // the command also brings back band lines closed with ✕
-    await update($, hiddenAtom, () => [])
-    await update($, pageAtom, () => 0)
+    await update($, deckAtom, d => ({ ...d, reset: (d.reset || 0) + 1 }))
     return answer($, ctx)
   })
 
@@ -282,27 +292,11 @@ export const register: Register = (on, options) => {
     return reply ? replyBox($.ui.resolve(e), reply) : next(e)
   })
 
-  // above the prompt: one line per item overdue or due within the hour, each with a ✕
+  // the one row above the prompt the set shares (see STYLE/look.tsx): uploads due and anything else
+  // running, most urgent first, ‹ 2/3 › across them all, ✕ closes the one in view
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!bandOn || e.props.hasSurvey) return next(e)
-    const nowMs = await $.clock.now()
-    const offsetMin = await read($, offsetAtom)
-    const list = bandRows(await read($, rows), nowMs, offsetMin, await read($, hiddenAtom))
-    if (list.length === 0) return next(e)
-    const ui = $.ui.resolve(e)
-    // one line, one reminder at a time; with several, ‹ 2/3 › flicks between them (the most urgent first)
-    const lines = bandPieces(list, nowMs, offsetMin)
-    const at = Math.min(Math.max(0, await read($, pageAtom)), list.length - 1)
-    const r = list[at] as (typeof list)[number]
-    return (
-      <ui.Box key="publish-band" flexDirection="column">
-        {bandLine(ui, r.id, lines[at] ?? [], () => { void update($, hiddenAtom, h => [...h, r.id]) }, {
-          at,
-          total: list.length,
-          onPrev: () => { void update($, pageAtom, () => turn(at, -1, list.length)) },
-          onNext: () => { void update($, pageAtom, () => turn(at, 1, list.length)) },
-        })}
-      </ui.Box>
-    )
+    if (e.props.hasSurvey) return next(e)
+    const row = deckRow($.ui.resolve(e), 'publish-schedule', await readDecks($), await read($, viewAtom), fn => { void update($, viewAtom, fn) })
+    return row ?? next(e)
   })
 }

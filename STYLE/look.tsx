@@ -1,7 +1,7 @@
 // look.tsx: the shared look of the claude-mods set. Every mod carries an identical copy as hooks/look.tsx
 // (each mod installs on its own, so none can import another's); scripts/check-look.sh fails when a copy
 // differs from STYLE/look.tsx. Change it here, then copy it to every mod. See STYLE.md.
-import type { BoxProps, ButtonProps, ElementConstructor, TextProps } from 'claude-code'
+import type { BoxProps, ButtonProps, ElementConstructor, EngineInterface, TextProps } from 'claude-code'
 
 /** The three elements every surface draws, which is all the set uses. */
 export type UI = { Box: ElementConstructor<BoxProps>; Text: ElementConstructor<TextProps>; Button: ElementConstructor<ButtonProps> }
@@ -174,3 +174,70 @@ export const turn = (at: number, step: number, total: number): number => (total 
 /** A status line: `label value · label value`. */
 export const status = (parts: readonly (readonly [string, string])[]): string =>
   parts.map(([l, v]) => (l ? `${l} ${v}` : v)).join(' · ')
+
+// --- the one row above the prompt -------------------------------------------------------------
+
+/**
+ * The mods that put rows above the prompt share ONE row between them, so the band never grows a
+ * second line. Each publishes its items as its own `deck` state value; the first of these mods
+ * that is loaded draws the row for all of them, most urgent item first, ‹ 2/3 › across every
+ * mod's items. The order here decides which mod draws; a mod not loaded has no deck.
+ */
+export const DECK_PLUGINS = ['render-progress', 'publish-schedule'] as const
+
+/** One item on the shared row: `rank` 0 is most urgent (see RANK); `pieces` is its line. */
+export type DeckItem = { id: string; rank: number; pieces: Piece[] }
+/** A mod's items, and how many times its command has run (each run brings closed items back). */
+export type Deck = { items: DeckItem[]; reset: number }
+/** The drawing mod's view of the row: which item shows, and the items closed with ✕. */
+export type DeckView = { at: number; resets: number; hidden: string[] }
+export const NO_VIEW: DeckView = { at: 0, resets: 0, hidden: [] }
+
+/** How urgent an item is, the same in every mod: lower comes first. */
+export const RANK = { bad: 0, work: 1, warn: 2, done: 3 } as const
+
+type Sourced = { plugin: string; deck: Deck }
+
+/** Every loaded mod's deck, in DECK_PLUGINS order. Read while drawing, so a change redraws. */
+export async function readDecks($: EngineInterface): Promise<Sourced[]> {
+  // literal refs, as `claude plugin validate` wants; another mod's contract is not in this one's types
+  const got = (await Promise.all([
+    $.state.get({ plugin: 'render-progress', key: 'deck' } as never),
+    $.state.get({ plugin: 'publish-schedule', key: 'deck' } as never),
+  ])) as { value?: Deck; version: number }[]
+  return DECK_PLUGINS.flatMap((plugin, i) => {
+    const g = got[i]
+    return g && g.version > 0 && g.value && Array.isArray(g.value.items) ? [{ plugin, deck: g.value }] : []
+  })
+}
+
+/** The items to show, most urgent first, minus those closed since the last command ran. */
+export const deckItems = (decks: readonly Sourced[], view: DeckView): (DeckItem & { key: string })[] => {
+  const resets = decks.reduce((s, d) => s + (d.deck.reset || 0), 0)
+  const hidden = view.resets === resets ? view.hidden : []
+  return decks
+    .flatMap((d, order) => d.deck.items.map((it, i) => ({ ...it, key: `${d.plugin}:${it.id}`, order, i })))
+    .filter(it => !hidden.includes(it.key))
+    .sort((a, b) => a.rank - b.rank || a.order - b.order || a.i - b.i)
+    .map(({ order: _o, i: _i, ...it }) => it)
+}
+
+/**
+ * The shared row, drawn by the first loaded mod of DECK_PLUGINS (`me` is the mod asking); undefined
+ * when another mod draws it or nothing is due. `setView` writes the drawing mod's own DeckView.
+ */
+export const deckRow = (ui: UI, me: string, decks: readonly Sourced[], view: DeckView, setView: (fn: (v: DeckView) => DeckView) => void) => {
+  if (decks[0]?.plugin !== me) return undefined
+  const resets = decks.reduce((s, d) => s + (d.deck.reset || 0), 0)
+  const items = deckItems(decks, view)
+  if (items.length === 0) return undefined
+  const fresh = (v: DeckView): DeckView => (v.resets === resets ? v : { at: 0, resets, hidden: [] })
+  const at = Math.min(Math.max(0, view.resets === resets ? view.at : 0), items.length - 1)
+  const it = items[at] as DeckItem & { key: string }
+  return bandLine(ui, it.key, it.pieces, () => setView(v => ({ ...fresh(v), hidden: [...fresh(v).hidden, it.key] })), {
+    at,
+    total: items.length,
+    onPrev: () => setView(v => ({ ...fresh(v), at: turn(at, -1, items.length) })),
+    onNext: () => setView(v => ({ ...fresh(v), at: turn(at, 1, items.length) })),
+  })
+}

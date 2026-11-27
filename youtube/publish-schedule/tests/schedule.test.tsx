@@ -152,8 +152,8 @@ test('the band: one line, the most urgent first, ‹ 1/2 › to flick; ✕ close
   engine(on, ITEMS)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const missed = '2027-01-15T09:05|Other Channel|Missed Short'
-  const soon = '2027-01-15T14:00|Demo Channel|Soon Short'
+  const missed = 'publish-schedule:2027-01-15T09:05|Other Channel|Missed Short'
+  const soon = 'publish-schedule:2027-01-15T14:00|Demo Channel|Soon Short'
   // one line: the overdue one first, the arrows and 1/2 at the right
   expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('overdue 4 h 25 min  09:05  Other Channel  Short  Missed Short‹1/2›✕')
   expect(await ui.find({ type: 'Box', key: soon })).toBeUndefined()
@@ -171,6 +171,19 @@ test('the band: one line, the most urgent first, ‹ 1/2 › to flick; ✕ close
 
   await $.command.run(run())
   expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')
+  await ui.unmount()
+})
+
+test('with render-progress loaded, it draws the shared row and this mod draws none of its own', async ($, on) => {
+  engine(on, ITEMS)
+  on('state.get', { plugin: 'render-progress' } as never, () => ({ value: { value: { items: [], reset: 0 }, version: 1 } }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
   await ui.unmount()
 })
 

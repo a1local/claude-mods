@@ -1,6 +1,6 @@
 {
   "name": "render-progress",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A pacman-style progress bar above the prompt for long renders (Remotion, Remotion Lambda, Blender or anything that can report frames): title, bar, ETA, frames, cores.",
   "types": "./types/index.d.ts",
   "author": {

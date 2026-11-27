@@ -38,13 +38,13 @@ writes `"done": true` for row 2 of the last reply into the schedule file and ans
 
 ### Above the prompt
 
-When something is due within the hour, or overdue, it shows above the prompt on one line, the most urgent first. With several, **‹ 2/3 ›** flicks between them:
+When something is due within the hour, or overdue, it shows above the prompt on one line, the most urgent first. With several, **‹ 2/3 ›** flicks between them. With [render-progress](../../rendering/render-progress/) installed too, renders and uploads share that one line: an overdue upload or a failed render first, then renders running, uploads due soon, renders done.
 
 ```
 overdue 25 min  09:05  Demo Channel  Short  Squid Have Three Hearts   ‹ 1/2 ›  ✕
 ```
 
-**✕** closes the one in view for the session; `/publishing` brings closed ones back and starts again from the first. With nothing due within the hour and nothing overdue, nothing is drawn.
+**✕** closes the one in view for the session; `/publishing` (or `/renders`) brings closed ones back and starts again from the first. With nothing due within the hour and nothing overdue, nothing is drawn.
 
 The file is read again every minute, so edits by hand or by a script show up without a reload.
 

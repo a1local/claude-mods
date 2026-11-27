@@ -20,8 +20,14 @@ export type RenderRow = {
   cores?: number | null
 }
 
+/** The shared row above the prompt (see STYLE/look.tsx): this mod's items on it. */
+export type DeckPiece = { text: string; color?: string; bold?: boolean; dim?: boolean }
+export type Deck = { items: { id: string; rank: number; pieces: DeckPiece[] }[]; reset: number }
+/** Which item the shared row shows and which were closed with ✕, when this mod draws it. */
+export type DeckView = { at: number; resets: number; hidden: string[] }
+
 declare module 'claude-code' {
   interface PluginState {
-    'render-progress': { rows: RenderRow[]; hidden: string[]; page: number }
+    'render-progress': { rows: RenderRow[]; deck: Deck; view: DeckView }
   }
 }

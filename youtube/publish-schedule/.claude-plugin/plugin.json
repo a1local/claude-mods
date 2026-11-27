@@ -1,6 +1,6 @@
 {
   "name": "publish-schedule",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "/publishing answers in the chat with today's and tomorrow's films and Shorts from a schedule file, with done, due-soon and overdue marks; /publishing done <n> marks an item done; items due within the hour or overdue show above the prompt, one line each.",
   "types": "./types/index.d.ts",
   "author": {

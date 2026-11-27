@@ -24,6 +24,12 @@ export type Row = ScheduleItem & {
   atMs: number
 }
 
+/** The shared row above the prompt (see STYLE/look.tsx): this mod's items on it. */
+export type DeckPiece = { text: string; color?: string; bold?: boolean; dim?: boolean }
+export type Deck = { items: { id: string; rank: number; pieces: DeckPiece[] }[]; reset: number }
+/** Which item the shared row shows and which were closed with ✕, when this mod draws it. */
+export type DeckView = { at: number; resets: number; hidden: string[] }
+
 declare module 'claude-code' {
   interface PluginState {
     'publish-schedule': {
@@ -34,10 +40,10 @@ declare module 'claude-code' {
       offsetMin: number
       /** Why the file could not be read, or '' when it was. */
       problem: string
-      /** Band lines closed with ✕ this session, by row id; `/publishing` clears it. */
-      hidden: string[]
-      /** Which reminder the band shows when several are due (‹ › flick between them). */
-      page: number
+      /** This mod's items on the shared row above the prompt; `/publishing` bumps `reset`. */
+      deck: Deck
+      /** The shared row's page and closed items, when this mod is the one drawing it. */
+      view: DeckView
     }
   }
 }

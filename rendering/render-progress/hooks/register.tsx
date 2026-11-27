@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { RenderRow } from '../types'
-import { align, bandLine, bar, clock, cut, hhmm, label, nameColor, parseOffset, recall, remember, replyBox, short, title, toned, turn } from './look'
-import type { Piece, Reply, Row, Tone } from './look'
+import { align, bar, clock, cut, deckRow, hhmm, label, nameColor, NO_VIEW, parseOffset, RANK, readDecks, recall, remember, replyBox, short, title, toned } from './look'
+import type { DeckItem, Piece, Reply, Row, Tone } from './look'
 
 // Each render describes itself in one small file in the registry folder (default ~/.render-progress):
 // `key=value` lines. See README.md for the format. The mod reads them every few seconds.
@@ -14,9 +14,12 @@ const KEEP_DONE_SEC = 2 * 60 * 60 // a finished render stays this long, unless h
 const IGNORE_OLDER_SEC = 2 * 24 * 60 * 60
 
 const rows = atom({ plugin: 'render-progress', key: 'rows' } as const, [])
-const hidden = atom({ plugin: 'render-progress', key: 'hidden' } as const, [])
-// which render the band shows when several are running (‹ › flick between them)
-const page = atom({ plugin: 'render-progress', key: 'page' } as const, 0)
+// this mod's items on the one row above the prompt the set shares, and its view of that row
+const deck = atom({ plugin: 'render-progress', key: 'deck' } as const, { items: [], reset: 0 })
+const view = atom({ plugin: 'render-progress', key: 'view' } as const, NO_VIEW)
+// the computer's time zone and core count, asked once at session start
+let offsetMin = 0
+let cpus = 0
 
 /** Parse a registry file's `key=value` lines. */
 export const parseRegistry = (text: string): Record<string, string> => {
@@ -332,6 +335,18 @@ const poll = async ($: EngineInterface, dir: string, alerts = true, detect = tru
   for (const r of found) lastStage.set(r.id, r.stage)
   seeded = true
   await update($, rows, () => found)
+  const items = deckOf(found, nowMs, offsetMin, cpus)
+  await update($, deck, d => ({ items, reset: d.reset || 0 }))
+}
+
+/** The renders as items of the shared row: failed or stalled first, then running, then done. */
+export const deckOf = (found: RenderRow[], nowMs: number, offsetMin: number, cpus = 0): DeckItem[] => {
+  const lines = renderLines(found, nowMs, offsetMin, cpus)
+  return found.map((r, i) => ({
+    id: r.id,
+    rank: r.stage === 'failed' || r.stage === 'stalled' ? RANK.bad : r.stage === 'done' ? RANK.done : RANK.work,
+    pieces: lines[i] ?? [],
+  }))
 }
 
 const STAGE_TEXT: Record<RenderRow['stage'], string> = {
@@ -392,8 +407,6 @@ export const rendersReply = (list: RenderRow[], nowMs: number, offsetMin: number
 }
 
 export const register: Register = (on, options) => {
-  let offsetMin = 0
-  let cpus = 0
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -415,8 +428,8 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'renders' }, async $ => {
-    await update($, hidden, () => [])
-    await update($, page, () => 0)
+    // brings back items closed with ✕ on the shared row, and starts it again from the first
+    await update($, deck, d => ({ ...d, reset: (d.reset || 0) + 1 }))
     const reply = rendersReply(await read($, rows), await $.clock.now(), offsetMin, cpus)
     return { text: remember(reply), isTextDisplayOnly: true as const }
   })
@@ -427,22 +440,11 @@ export const register: Register = (on, options) => {
     return reply ? replyBox($.ui.resolve(e), reply) : next(e)
   })
 
-  // the band above the prompt: one line, one render at a time; with several, ‹ 2/3 › flicks between
-  // them (lined up as a set, so nothing jumps as you flick) and ✕ closes the one in view
+  // the one row above the prompt the set shares (see STYLE/look.tsx): renders and anything else due,
+  // most urgent first, ‹ 2/3 › across them all, ✕ closes the one in view
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const hide = await read($, hidden)
-    const shown = (await read($, rows)).filter(r => !hide.includes(r.id))
-    if (shown.length === 0) return next(e)
-    const ui = $.ui.resolve(e)
-    const lines = renderLines(shown, await $.clock.now(), offsetMin, cpus)
-    const at = Math.min(Math.max(0, await read($, page)), shown.length - 1)
-    const r = shown[at] as RenderRow
-    return bandLine(ui, r.id, lines[at] ?? [], () => { void update($, hidden, h => [...h, r.id]) }, {
-      at,
-      total: shown.length,
-      onPrev: () => { void update($, page, () => turn(at, -1, shown.length)) },
-      onNext: () => { void update($, page, () => turn(at, 1, shown.length)) },
-    })
+    const row = deckRow($.ui.resolve(e), 'render-progress', await readDecks($), await read($, view), fn => { void update($, view, fn) })
+    return row ?? next(e)
   })
 }
