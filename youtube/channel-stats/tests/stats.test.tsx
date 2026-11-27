@@ -165,9 +165,9 @@ test('the reply draws in the chat as styled rows: name, subs, a bar to 1k, views
       plugin: 'channel-stats', surface, component: 'CommandOutput',
       props: { command: 'channel-stats', args: '', text: out.text ?? '', isErrored: false },
     })
-    // 412 of 1,000 is 41% (padded to line up with the other channel's 0.1%): 7 of 16 cells; +12 subs and +1,234 views since yesterday, in green
+    // 412 of 1,000 is 41% (padded to line up with the other channel's 0.1%): 4 of 10 cells; one line, two spaces between columns; +12 subs and +1,234 views since yesterday, in green
     expect((await ui.find({ type: 'Box', key: 'row-0' }))?.text)
-      .toBe('Demo Animals412 subs +12[#######---------]  41%  588 to go18,234 views +1,2349 videos')
+      .toBe('Demo Animals  412 subs +12  [####------]  41%  588 to go  18,234 views +1,234  9 videos')
     expect((await ui.find({ type: 'Text', text: ' +12' }))?.props.color).toBe('success')
     expect((await ui.find({ type: 'Text', text: /^Demo Animals/ }))?.props.mono).toBe(true)
     expect((await ui.find({ type: 'Box', key: 'foot' }))?.text).toContain('changes since 2027-01-14')

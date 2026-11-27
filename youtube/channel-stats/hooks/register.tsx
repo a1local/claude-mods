@@ -227,7 +227,7 @@ const PALETTE = ['success', 'suggestion', 'claude', 'merged', 'warning', 'autoAc
 export const statsView = (refs: ChannelRef[], last: Last, daily: Daily, today: string, offsetMin: number, note: string): { rows: Piece[][][]; foot: string } => {
   const before = Object.keys(daily).filter(d => d < today).sort().pop()
   const prev = before ? daily[before] ?? {} : {}
-  const BAR = 16
+  const BAR = 10
   const cells = refs.map((r, i) => {
     const s = last[refKey(r)]
     const p = prev[refKey(r)]
@@ -367,13 +367,10 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
         <Box><Text bold>YouTube channels</Text></Box>
         {view.rows.map((row, i) => (
-          <Box key={`row-${i}`} flexDirection="row" flexWrap="wrap" columnGap={3}>
-            {row.map(cell => (
-              <Box flexDirection="row">
-                {cell.map(piece => (
-                  <Text mono color={piece.color} bold={piece.bold} dimColor={piece.dim}>{piece.text}</Text>
-                ))}
-              </Box>
+          // one line per channel: the columns sit side by side with two spaces between, never wrapping
+          <Box key={`row-${i}`} flexDirection="row" flexWrap="nowrap">
+            {row.flatMap((cell, j) => [...(j > 0 ? [{ text: '  ' }] : []), ...cell]).map(piece => (
+              <Text mono color={piece.color} bold={piece.bold} dimColor={piece.dim} wrap="truncate-end">{piece.text}</Text>
             ))}
           </Box>
         ))}
