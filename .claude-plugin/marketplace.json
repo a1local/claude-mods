@@ -1,0 +1,14 @@
+{
+  "name": "claude-mods",
+  "owner": {
+    "name": "A1 Local"
+  },
+  "plugins": [
+    {
+      "name": "render-progress",
+      "source": "./render-progress",
+      "description": "A pacman-style progress bar above the prompt for long renders: title, bar, ETA, frames, cores."
+    }
+  ],
+  "description": "Mods for Claude Code: small add-ons for what the app and terminal show."
+}
