@@ -75,7 +75,7 @@ test('a Remotion render half done shows title, bar, ETA, frames and cores', asyn
   // part1 finished (its 1000 frames) + 500 + 500 = 2,000 of 3,000 after an hour: 30 min left;
   // 07:30 UTC + 30 min at +0800 is 16:00. 2.5 cores (0.4 + 2.1, not the unrelated 0.9), rounded to 3 of 10
   const line = await ui.find({ type: 'Box', key: 'render-progress:demo-123' })
-  expect(line?.text).toBe('✕Predators Then And Now  [######66%##-----]  ETA:16:00  2.0k/3.0k  3/10c')
+  expect(line?.text).toBe('✕render  Predators Then And Now  [######66%##-----]  ETA:16:00  2.0k/3.0k  3/10c')
   // the filled part of the bar is its own coloured piece, and each column its own cell
   expect((await ui.find({ type: 'Text', text: '######' }))?.props.color).toBe('claude')
   expect((await ui.find({ type: 'Text', text: '3/10c' }))?.props.color).toBe('warning')
@@ -112,7 +112,7 @@ test('a kind=command render shows what its command reports', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   // one sample so far: no rate yet, so no estimate; no live pids, so no cores column
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Box', key: 'render-progress:blender-film' }))?.text).toBe('✕A Blender Film  [######37%-------]  ETA:--:--  5.0k/13.5k')
+  expect((await ui.find({ type: 'Box', key: 'render-progress:blender-film' }))?.text).toBe('✕render  A Blender Film  [######37%-------]  ETA:--:--  5.0k/13.5k')
   // a color= line sets the title's colour
   expect((await ui.find({ type: 'Text', text: /^A Blender/ }))?.props.color).toBe('suggestion')
   // ✕ closes the row; /renders brings it back
@@ -242,18 +242,18 @@ test('one row for the set: an overdue upload from publish-schedule comes before 
     return { value: f.text }
   })
   // publish-schedule loaded beside it, with one upload overdue
-  const upload = { id: 'up', rank: 0, pieces: [{ text: 'overdue 5 min', color: 'error' }, { text: '  Squid Short' }] }
+  const upload = { id: 'up', rank: 0, tag: 'upload', pieces: [{ text: 'overdue 5 min', color: 'error' }, { text: '  Squid Short' }] }
   on('state.get', { plugin: 'publish-schedule' } as never, () => ({ value: { value: { items: [upload], reset: 0 }, version: 1 } }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Box', key: 'publish-schedule:up' }))?.text).toBe('✕‹1/2›overdue 5 min  Squid Short')
+  expect((await ui.find({ type: 'Box', key: 'publish-schedule:up' }))?.text).toBe('✕‹1/2›upload  overdue 5 min  Squid Short')
   expect(await ui.find({ type: 'Box', key: 'render-progress:demo-123' })).toBe(undefined)
   await ui.press({ key: 'band-next' })
   expect((await ui.find({ type: 'Box', key: 'render-progress:demo-123' }))?.text).toContain('Predators Then And Now')
   // ✕ on the upload leaves the render alone on the row, with no arrows
   await ui.press({ key: 'band-prev' })
   await ui.press({ key: 'close-publish-schedule:up' })
-  expect((await ui.find({ type: 'Box', key: 'render-progress:demo-123' }))?.text).toMatch(/^✕Predators.*3\/10c$/)
+  expect((await ui.find({ type: 'Box', key: 'render-progress:demo-123' }))?.text).toMatch(/^✕render  Predators.*3\/10c$/)
   await ui.unmount()
 })

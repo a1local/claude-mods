@@ -3,7 +3,7 @@
 A progress bar above the prompt in Claude Code (the desktop app and the terminal) for renders that take minutes or hours. One line per render:
 
 ```
-✕  The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c
+✕  render  The Longest Night On Mars  [########54%#----]  ETA:21:58  7.4k/13.5k  2/10c
 ```
 
 - **Title**, coloured by channel, so different projects are easy to tell apart.

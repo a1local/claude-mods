@@ -155,19 +155,19 @@ test('the band: one line, the most urgent first, ‹ 1/2 › to flick; ✕ close
   const missed = 'publish-schedule:2027-01-15T09:05|Other Channel|Missed Short'
   const soon = 'publish-schedule:2027-01-15T14:00|Demo Channel|Soon Short'
   // one line: the overdue one first, the arrows and 1/2 at the right
-  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('✕‹1/2›late 4h25m  Other Channel  Missed Short')
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('✕‹1/2›upload  late 4h25m  Other Channel  Missed Short')
   expect(await ui.find({ type: 'Box', key: soon })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^late/ }))?.props.color).toBe('error')
   // › shows the next, lined up with the first
   await ui.press({ key: 'band-next' })
-  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('✕‹2/2›in 30m      Demo Channel   Soon Short')
+  expect((await ui.find({ type: 'Box', key: soon }))?.text).toBe('✕‹2/2›upload  in 30m      Demo Channel   Soon Short')
   expect((await ui.find({ type: 'Text', text: 'in 30m' }))?.props.color).toBe('warning')
   // lines that are done, later or tomorrow stay off the band
   expect(await ui.find({ type: 'Text', text: /Evening Short/ })).toBeUndefined()
 
   // ✕ closes the one in view; the other is left, alone, with no arrows
   await ui.press({ key: `close-${soon}` })
-  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('✕late 4h25m  Other Channel  Missed Short')
+  expect((await ui.find({ type: 'Box', key: missed }))?.text).toBe('✕upload  late 4h25m  Other Channel  Missed Short')
 
   await $.command.run(run())
   expect((await ui.find({ type: 'Box', key: 'band-page' }))?.text).toBe('1/2')

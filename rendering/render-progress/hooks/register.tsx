@@ -344,6 +344,7 @@ export const deckOf = (found: RenderRow[], nowMs: number, offsetMin: number, cpu
   const lines = renderLines(found, nowMs, offsetMin, cpus)
   return found.map((r, i) => ({
     id: r.id,
+    tag: 'render',
     rank: r.stage === 'failed' || r.stage === 'stalled' ? RANK.bad : r.stage === 'done' ? RANK.done : RANK.work,
     pieces: lines[i] ?? [],
   }))

@@ -186,8 +186,11 @@ export const status = (parts: readonly (readonly [string, string])[]): string =>
  */
 export const DECK_PLUGINS = ['render-progress', 'publish-schedule'] as const
 
-/** One item on the shared row: `rank` 0 is most urgent (see RANK); `pieces` is its line. */
-export type DeckItem = { id: string; rank: number; pieces: Piece[] }
+/**
+ * One item on the shared row: `rank` 0 is most urgent (see RANK); `tag` says what it is in one dim
+ * word (`render`, `upload`), so items from different mods never look alike; `pieces` is its line.
+ */
+export type DeckItem = { id: string; rank: number; tag?: string; pieces: Piece[] }
 /** A mod's items, and how many times its command has run (each run brings closed items back). */
 export type Deck = { items: DeckItem[]; reset: number }
 /** The drawing mod's view of the row: which item shows, and the items closed with ✕. */
@@ -235,7 +238,8 @@ export const deckRow = (ui: UI, me: string, decks: readonly Sourced[], view: Dec
   const fresh = (v: DeckView): DeckView => (v.resets === resets ? v : { at: 0, resets, hidden: [] })
   const at = Math.min(Math.max(0, view.resets === resets ? view.at : 0), items.length - 1)
   const it = items[at] as DeckItem & { key: string }
-  return bandLine(ui, it.key, it.pieces, () => setView(v => ({ ...fresh(v), hidden: [...fresh(v).hidden, it.key] })), {
+  const pieces: Piece[] = it.tag ? [label(it.tag), { text: '  ' }, ...it.pieces] : it.pieces
+  return bandLine(ui, it.key, pieces, () => setView(v => ({ ...fresh(v), hidden: [...fresh(v).hidden, it.key] })), {
     at,
     total: items.length,
     onPrev: () => setView(v => ({ ...fresh(v), at: turn(at, -1, items.length) })),

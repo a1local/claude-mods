@@ -181,7 +181,7 @@ export const bandRows = (all: Row[], nowMs: number, offsetMin: number): Row[] =>
 export const deckOf = (all: Row[], nowMs: number, offsetMin: number): DeckItem[] => {
   const list = bandRows(all, nowMs, offsetMin)
   const lines = bandPieces(list, nowMs, offsetMin)
-  return list.map((r, i) => ({ id: r.id, rank: statusOf(r, nowMs) === 'overdue' ? RANK.bad : RANK.warn, pieces: lines[i] ?? [] }))
+  return list.map((r, i) => ({ id: r.id, tag: 'upload', rank: statusOf(r, nowMs) === 'overdue' ? RANK.bad : RANK.warn, pieces: lines[i] ?? [] }))
 }
 
 /** `38m`, `2h5m`, `2h`: the short span the band uses. */
